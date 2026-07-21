@@ -250,7 +250,7 @@ export default function ProjectPage() {
             </label>
             <WorkspaceSwitcher
               onWorkspaceChange={(id) => {
-                if (id !== activeWorkspaceId) {
+                if (activeWorkspaceId && id !== activeWorkspaceId) {
                   router.push('/');
                 }
               }}
