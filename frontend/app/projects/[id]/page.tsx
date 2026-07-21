@@ -155,7 +155,7 @@ export default function ProjectPage() {
       if (filterStatus) paramsList.push(`status=${filterStatus}`);
       if (filterPriority) paramsList.push(`priority=${filterPriority}`);
       if (filterAssignee) paramsList.push(`assignee_id=${filterAssignee}`);
-      
+
       const queryString = paramsList.length > 0 ? `?${paramsList.join('&')}` : '';
       const response = await api.get(`/projects/${projectId}/tasks${queryString}`);
       return response.data;
@@ -239,7 +239,7 @@ export default function ProjectPage() {
               </svg>
             </div>
             <span className="bg-gradient-to-r from-indigo-200 to-purple-200 bg-clip-text text-lg font-bold tracking-tight text-transparent">
-              Antigravity Asana
+              Asano
             </span>
           </div>
 
@@ -314,11 +314,10 @@ export default function ProjectPage() {
                     <button
                       key={pj.id}
                       onClick={() => router.push(`/projects/${pj.id}`)}
-                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium transition ${
-                        projectId === pj.id
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium transition ${projectId === pj.id
                           ? 'bg-slate-800 text-white font-semibold border border-white/5'
                           : 'text-slate-300 hover:bg-slate-850 hover:text-white'
-                      }`}
+                        }`}
                     >
                       <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: pj.color }} />
                       <span className="truncate">{pj.name}</span>
@@ -376,25 +375,22 @@ export default function ProjectPage() {
             <div className="flex rounded-xl bg-slate-950 p-1 border border-white/5">
               <button
                 onClick={() => setActiveTab('list')}
-                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${
-                  activeTab === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
+                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
               >
                 Danh sách (List)
               </button>
               <button
                 onClick={() => setActiveTab('board')}
-                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${
-                  activeTab === 'board' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
+                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'board' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
               >
                 Kanban Board
               </button>
               <button
                 onClick={() => setActiveTab('calendar')}
-                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${
-                  activeTab === 'calendar' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
+                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'calendar' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
               >
                 Lịch (Calendar)
               </button>
@@ -531,24 +527,22 @@ export default function ProjectPage() {
                             {task.title}
                           </td>
                           <td className="py-3.5 px-4 text-xs font-medium">
-                            <span className={`inline-flex rounded-full px-2 py-0.5 capitalize border ${
-                              task.status === 'done'
+                            <span className={`inline-flex rounded-full px-2 py-0.5 capitalize border ${task.status === 'done'
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                 : task.status === 'in_progress'
-                                ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                                : 'bg-slate-800 border-slate-700 text-slate-400'
-                            }`}>
+                                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                  : 'bg-slate-800 border-slate-700 text-slate-400'
+                              }`}>
                               {task.status === 'done' ? 'Đã hoàn thành' : task.status === 'in_progress' ? 'Đang làm' : 'Cần làm'}
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-xs font-medium">
-                            <span className={`capitalize ${
-                              task.priority === 'high'
+                            <span className={`capitalize ${task.priority === 'high'
                                 ? 'text-rose-400'
                                 : task.priority === 'medium'
-                                ? 'text-amber-400'
-                                : 'text-slate-400'
-                            }`}>
+                                  ? 'text-amber-400'
+                                  : 'text-slate-400'
+                              }`}>
                               {task.priority === 'high' ? 'Cao' : task.priority === 'medium' ? 'Trung bình' : 'Thấp'}
                             </span>
                           </td>

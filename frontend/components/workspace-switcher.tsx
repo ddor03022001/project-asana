@@ -38,6 +38,10 @@ export default function WorkspaceSwitcher({ onWorkspaceChange }: WorkspaceSwitch
       if (found) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setActiveWs(found);
+        if (onWorkspaceChange) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          onWorkspaceChange(found.id);
+        }
       } else {
         // Fallback to first workspace in list if none stored or invalid ID
         const first = workspaces[0];

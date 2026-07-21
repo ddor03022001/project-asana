@@ -157,7 +157,7 @@ export default function Home() {
               </svg>
             </div>
             <span className="bg-gradient-to-r from-indigo-200 to-purple-200 bg-clip-text text-lg font-bold tracking-tight text-transparent">
-              Antigravity Asana
+              Asano
             </span>
           </div>
 
@@ -285,7 +285,7 @@ export default function Home() {
               </svg>
             </div>
             <h1 className="bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 bg-clip-text text-3xl font-extrabold tracking-tight text-transparent">
-              Chào mừng trở lại Antigravity Asana!
+              Chào mừng trở lại Asano!
             </h1>
             <p className="text-sm leading-6 text-slate-400">
               Hãy chọn một không gian làm việc ở danh sách bên trái hoặc tạo mới một không gian làm việc để bắt đầu quản lý dự án và công việc của bạn.
@@ -326,7 +326,7 @@ export default function Home() {
             {/* Projects cards grid */}
             <div className="space-y-4">
               <h2 className="text-sm font-bold tracking-wider text-slate-400 uppercase">Dự án của bạn</h2>
-              
+
               {projectsLoading ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {[1, 2, 3].map((n) => (
@@ -349,11 +349,11 @@ export default function Home() {
                           Dự án
                         </span>
                       </div>
-                      
+
                       <h3 className="truncate text-base font-bold text-white transition group-hover:text-indigo-400">
                         {pj.name}
                       </h3>
-                      
+
                       <p className="mt-1 text-[11px] text-slate-500">
                         Khởi tạo lúc: {new Date(pj.created_at).toLocaleDateString('vi-VN')}
                       </p>

@@ -42,7 +42,7 @@ export default function LoginPage() {
             </svg>
           </div>
           <h1 className="bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 bg-clip-text text-3xl font-extrabold tracking-tight text-transparent">
-            Antigravity Asana
+            Asano
           </h1>
           <p className="mt-2 text-sm text-slate-400">
             Hệ thống quản lý công việc và cộng tác tối giản, hiệu quả.
