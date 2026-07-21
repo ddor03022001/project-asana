@@ -1,0 +1,49 @@
+#!/bin/sh
+
+# Git pre-commit hook
+echo "========================================="
+echo "🔍 Running pre-commit lint checks..."
+echo "========================================="
+
+# Get the repository root directory
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# 1. Check Backend Go Code
+if [ -d "$REPO_ROOT/backend" ]; then
+    echo "▶ Checking Go backend code..."
+    cd "$REPO_ROOT/backend"
+    
+    if ! command -v golangci-lint >/dev/null 2>&1; then
+        echo "⚠️  golangci-lint is not installed. Skipping Go linting."
+        echo "💡 To install, run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+    else
+        golangci-lint run
+        if [ $? -ne 0 ]; then
+            echo "❌ Go backend linting failed! Commit aborted."
+            exit 1
+        fi
+        echo "✅ Go backend linting passed."
+    fi
+fi
+
+# 2. Check Frontend Next.js Code
+if [ -d "$REPO_ROOT/frontend" ]; then
+    echo "▶ Checking React/Next.js frontend code..."
+    cd "$REPO_ROOT/frontend"
+    
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "⚠️  npm is not installed. Skipping frontend linting."
+    else
+        npm run lint
+        if [ $? -ne 0 ]; then
+            echo "❌ Frontend linting failed! Commit aborted."
+            exit 1
+        fi
+        echo "✅ Frontend linting passed."
+    fi
+fi
+
+echo "========================================="
+echo "🎉 All checks passed! Ready to commit."
+echo "========================================="
+exit 0
