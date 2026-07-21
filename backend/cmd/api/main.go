@@ -69,6 +69,10 @@ func main() {
 	invitationService := service.NewInvitationService(db, invitationRepo, emailService)
 	invitationHandler := handler.NewInvitationHandler(invitationService, cfg.JWTSecret)
 
+	workspaceRepo := postgresRepo.NewWorkspaceRepository(db)
+	workspaceService := service.NewWorkspaceService(db, workspaceRepo)
+	workspaceHandler := handler.NewWorkspaceHandler(workspaceService, cfg.JWTSecret)
+
 	// 4. Initialize Gin engine
 	r := gin.New()
 
@@ -94,6 +98,9 @@ func main() {
 
 	// Register Invitation routes: /invitations/:token, /workspaces/:id/invitations, /invitations/:token/accept
 	invitationHandler.RegisterRoutes(r)
+
+	// Register Workspace routes
+	workspaceHandler.RegisterRoutes(r, db)
 
 	// Test private endpoint protected by JWT verification middleware
 	r.GET("/protected", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) {
