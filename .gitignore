@@ -1,0 +1,30 @@
+# Secrets
+.env
+backend/.env
+backend/.env.local
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Go compilation outputs
+backend/api
+backend/api.exe
+backend/*.exe
+backend/debug
+backend/debug.test
+
+# Node / Next.js builds (handled in frontend/.gitignore, but ignored at root too)
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+frontend/build/
