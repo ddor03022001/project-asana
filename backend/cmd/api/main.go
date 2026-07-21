@@ -73,6 +73,14 @@ func main() {
 	workspaceService := service.NewWorkspaceService(db, workspaceRepo)
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceService, cfg.JWTSecret)
 
+	projectRepo := postgresRepo.NewProjectRepository(db)
+	projectService := service.NewProjectService(db, projectRepo)
+	projectHandler := handler.NewProjectHandler(projectService, cfg.JWTSecret)
+
+	taskRepo := postgresRepo.NewTaskRepository(db)
+	taskService := service.NewTaskService(taskRepo)
+	taskHandler := handler.NewTaskHandler(taskService, projectService, cfg.JWTSecret)
+
 	// 4. Initialize Gin engine
 	r := gin.New()
 
@@ -101,6 +109,12 @@ func main() {
 
 	// Register Workspace routes
 	workspaceHandler.RegisterRoutes(r, db)
+
+	// Register Project routes
+	projectHandler.RegisterRoutes(r, db)
+
+	// Register Task routes
+	taskHandler.RegisterRoutes(r)
 
 	// Test private endpoint protected by JWT verification middleware
 	r.GET("/protected", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) {
