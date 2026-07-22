@@ -7,6 +7,7 @@ import { getAccessToken, clearTokens, api } from '../../../lib/api';
 import WorkspaceSwitcher from '@/components/workspace-switcher';
 import CreateProjectModal from '@/components/create-project-modal';
 import { KanbanBoard } from '@/components/kanban/kanban-board';
+import { CalendarView } from '@/components/calendar/calendar-view';
 
 interface UserProfile {
   id: string;
@@ -208,6 +209,21 @@ export default function ProjectPage() {
       refetchTasks();
     } catch (err) {
       console.error('Failed to add task:', err);
+    }
+  };
+
+  const handleCalendarDateClick = async (dateStr: string) => {
+    const title = prompt(`Tạo công việc mới cho ngày ${new Date(dateStr).toLocaleDateString('vi-VN')}:`);
+    if (title && title.trim()) {
+      try {
+        await api.post(`/projects/${projectId}/tasks`, {
+          title: title.trim(),
+          due_date: new Date(dateStr).toISOString(),
+        });
+        refetchTasks();
+      } catch (err) {
+        console.error('Failed to create task from calendar:', err);
+      }
     }
   };
 
@@ -618,17 +634,12 @@ export default function ProjectPage() {
               />
             </div>
           ) : (
-            <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center text-center space-y-4">
-              <h2 className="text-lg font-bold text-white">Chức năng Lịch (Calendar View)</h2>
-              <p className="text-xs text-slate-500">
-                Giao diện Lịch (Calendar View) sẽ được triển khai ở Epic tiếp theo của dự án.
-              </p>
-              <button
-                onClick={() => setActiveTab('list')}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 transition"
-              >
-                Quay lại danh sách (List View)
-              </button>
+            <div className="h-full overflow-hidden p-2">
+              <CalendarView
+                tasks={tasks || []}
+                onSelectTask={(id) => setSelectedTaskId(id)}
+                onDateClick={handleCalendarDateClick}
+              />
             </div>
           )}
         </div>
