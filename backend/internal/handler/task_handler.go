@@ -138,6 +138,12 @@ func (h *TaskHandler) GetTasks(c *gin.Context) {
 	if priority := c.Query("priority"); priority != "" {
 		filters["priority"] = priority
 	}
+	if from := c.Query("from"); from != "" {
+		filters["from"] = from
+	}
+	if to := c.Query("to"); to != "" {
+		filters["to"] = to
+	}
 
 	tasks, err := h.taskService.GetTasks(c.Request.Context(), projectID, filters)
 	if err != nil {

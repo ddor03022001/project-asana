@@ -46,6 +46,12 @@ func (r *taskRepo) FindAllByProjectID(ctx context.Context, projectID string, fil
 	if priority, ok := filters["priority"]; ok && priority != "" {
 		query = query.Where("priority = ?", priority)
 	}
+	if from, ok := filters["from"]; ok && from != "" {
+		query = query.Where("due_date >= ?", from)
+	}
+	if to, ok := filters["to"]; ok && to != "" {
+		query = query.Where("due_date <= ?", to)
+	}
 
 	// Always retrieve sorted by position ascending
 	err := query.Order("position ASC").Find(&tasks).Error

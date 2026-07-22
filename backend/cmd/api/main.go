@@ -93,6 +93,12 @@ func main() {
 	attachmentService := service.NewAttachmentService(attachmentRepo, "./uploads")
 	attachmentHandler := handler.NewAttachmentHandler(attachmentService, taskService, projectService, cfg.JWTSecret)
 
+	hub := service.NewHub()
+	notificationRepo := postgresRepo.NewNotificationRepository(db)
+	notificationService := service.NewNotificationService(notificationRepo, hub)
+	notificationHandler := handler.NewNotificationHandler(notificationService, cfg.JWTSecret)
+	wsHandler := handler.NewWebSocketHandler(hub, cfg.JWTSecret)
+
 	// 4. Initialize Gin engine
 	r := gin.New()
 
@@ -103,6 +109,9 @@ func main() {
 
 	// Serve static files uploaded by users
 	r.Static("/uploads", "./uploads")
+
+	// WebSocket endpoint
+	r.GET("/ws", wsHandler.HandleWebSocket)
 
 	// Health check route
 	r.GET("/ping", func(c *gin.Context) {
@@ -135,6 +144,9 @@ func main() {
 	commentHandler.RegisterRoutes(r)
 	tagHandler.RegisterRoutes(r, db)
 	attachmentHandler.RegisterRoutes(r)
+
+	// Register Notification routes
+	notificationHandler.RegisterRoutes(r)
 
 	// Test private endpoint protected by JWT verification middleware
 	r.GET("/protected", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) {
