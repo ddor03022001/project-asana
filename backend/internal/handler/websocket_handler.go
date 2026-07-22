@@ -5,11 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"backend/internal/middleware"
 	"backend/internal/service"
+	pkgjwt "backend/pkg/jwt"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
@@ -48,30 +47,13 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	// Verify token
-	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return []byte(h.jwtSecret), nil
-	})
-
-	if err != nil || !token.Valid {
+	claims, err := pkgjwt.ValidateToken(tokenStr, h.jwtSecret)
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 		return
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token claims"})
-		return
-	}
-
-	userID, ok := claims[middleware.UserIDContextKey].(string)
-	if !ok || userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user id missing in token"})
-		return
-	}
+	userID := claims.UserID
 
 	// Upgrade connection to WebSocket
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)

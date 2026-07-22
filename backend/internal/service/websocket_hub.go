@@ -91,3 +91,25 @@ func (h *Hub) BroadcastToUser(userID string, payload interface{}) {
 		}
 	}
 }
+
+func (h *Hub) BroadcastToAll(payload interface{}) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Failed to marshal WebSocket broadcast payload: %v", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, userClients := range h.clients {
+		for client := range userClients {
+			select {
+			case client.Send <- data:
+			default:
+				close(client.Send)
+				delete(userClients, client)
+			}
+		}
+	}
+}

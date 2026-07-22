@@ -69,6 +69,8 @@ func main() {
 	invitationService := service.NewInvitationService(db, invitationRepo, emailService)
 	invitationHandler := handler.NewInvitationHandler(invitationService, cfg.JWTSecret)
 
+	hub := service.NewHub()
+
 	workspaceRepo := postgresRepo.NewWorkspaceRepository(db)
 	workspaceService := service.NewWorkspaceService(db, workspaceRepo)
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceService, cfg.JWTSecret)
@@ -79,21 +81,20 @@ func main() {
 
 	taskRepo := postgresRepo.NewTaskRepository(db)
 	taskService := service.NewTaskService(taskRepo)
-	taskHandler := handler.NewTaskHandler(taskService, projectService, cfg.JWTSecret)
+	taskHandler := handler.NewTaskHandler(taskService, projectService, cfg.JWTSecret, db, hub)
 
 	commentRepo := postgresRepo.NewCommentRepository(db)
 	commentService := service.NewCommentService(commentRepo)
-	commentHandler := handler.NewCommentHandler(commentService, taskService, projectService, cfg.JWTSecret)
+	commentHandler := handler.NewCommentHandler(commentService, taskService, projectService, cfg.JWTSecret, db, hub)
 
 	tagRepo := postgresRepo.NewTagRepository(db)
 	tagService := service.NewTagService(tagRepo)
-	tagHandler := handler.NewTagHandler(tagService, taskService, projectService, cfg.JWTSecret)
+	tagHandler := handler.NewTagHandler(tagService, taskService, projectService, cfg.JWTSecret, db)
 
 	attachmentRepo := postgresRepo.NewAttachmentRepository(db)
 	attachmentService := service.NewAttachmentService(attachmentRepo, "./uploads")
-	attachmentHandler := handler.NewAttachmentHandler(attachmentService, taskService, projectService, cfg.JWTSecret)
+	attachmentHandler := handler.NewAttachmentHandler(attachmentService, taskService, projectService, cfg.JWTSecret, db)
 
-	hub := service.NewHub()
 	notificationRepo := postgresRepo.NewNotificationRepository(db)
 	notificationService := service.NewNotificationService(notificationRepo, hub)
 	notificationHandler := handler.NewNotificationHandler(notificationService, cfg.JWTSecret)

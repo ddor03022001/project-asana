@@ -95,7 +95,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	// We read frontend host/port from environment if set, otherwise default to http://localhost:3000
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3000"
+		frontendURL = "http://localhost:3008"
 	}
 	
 	redirectPath := fmt.Sprintf("%s/login/callback?access_token=%s&refresh_token=%s", frontendURL, accessToken, refreshToken)
@@ -163,7 +163,7 @@ func (h *AuthHandler) MockLogin(c *gin.Context) {
 
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3000"
+		frontendURL = "http://localhost:3008"
 	}
 	
 	redirectPath := fmt.Sprintf("%s/login/callback?access_token=%s&refresh_token=%s", frontendURL, accessToken, refreshToken)

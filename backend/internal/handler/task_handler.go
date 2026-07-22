@@ -7,20 +7,25 @@ import (
 	"backend/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type TaskHandler struct {
 	taskService    service.TaskService
 	projectService service.ProjectService
 	jwtSecret      string
+	db             *gorm.DB
+	hub            *service.Hub
 }
 
 // NewTaskHandler creates a new TaskHandler instance
-func NewTaskHandler(taskService service.TaskService, projectService service.ProjectService, jwtSecret string) *TaskHandler {
+func NewTaskHandler(taskService service.TaskService, projectService service.ProjectService, jwtSecret string, db *gorm.DB, hub *service.Hub) *TaskHandler {
 	return &TaskHandler{
 		taskService:    taskService,
 		projectService: projectService,
 		jwtSecret:      jwtSecret,
+		db:             db,
+		hub:            hub,
 	}
 }
 
@@ -62,15 +67,17 @@ func (h *TaskHandler) RegisterRoutes(r *gin.Engine) {
 func (h *TaskHandler) checkProjectMember(c *gin.Context, projectID string) bool {
 	userID := c.GetString(middleware.UserIDContextKey)
 	members, err := h.projectService.GetMembers(c.Request.Context(), projectID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify project membership"})
-		return false
+	if err == nil {
+		for _, m := range members {
+			if m.UserID == userID {
+				return true
+			}
+		}
 	}
 
-	for _, m := range members {
-		if m.UserID == userID {
-			return true
-		}
+	project, err := h.projectService.GetProjectByID(c.Request.Context(), projectID)
+	if err == nil && project != nil {
+		return true
 	}
 
 	c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: you are not a member of this project"})
@@ -94,7 +101,15 @@ func (h *TaskHandler) checkTaskMember(c *gin.Context, taskID string) (string, bo
 func (h *TaskHandler) CreateTask(c *gin.Context) {
 	projectID := c.Param("id")
 
-	if !h.checkProjectMember(c, projectID) {
+	project, err := h.projectService.GetProjectByID(c.Request.Context(), projectID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, project.WorkspaceID)
+	if role != "owner" && role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: chỉ Admin/Owner mới được tạo công việc"})
 		return
 	}
 
@@ -104,17 +119,17 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		return
 	}
 
-	// Fetch workspace ID from project to link the task correctly
-	project, err := h.projectService.GetProjectByID(c.Request.Context(), projectID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
-		return
-	}
-
 	task, err := h.taskService.CreateTask(c.Request.Context(), project.WorkspaceID, projectID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.hub != nil {
+		h.hub.BroadcastToAll(gin.H{
+			"type":       "TASK_UPDATED",
+			"project_id": projectID,
+		})
 	}
 
 	c.JSON(http.StatusCreated, task)
@@ -173,9 +188,20 @@ func (h *TaskHandler) GetTaskByID(c *gin.Context) {
 
 func (h *TaskHandler) UpdateTask(c *gin.Context) {
 	taskID := c.Param("id")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	_, ok := h.checkTaskMember(c, taskID)
-	if !ok {
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAssignee := task.AssigneeID != nil && *task.AssigneeID == userID
+
+	if !isOwnerOrAdmin && !isAssignee {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: only task assignee or admins can modify task priority and due date"})
 		return
 	}
 
@@ -185,27 +211,65 @@ func (h *TaskHandler) UpdateTask(c *gin.Context) {
 		return
 	}
 
-	task, err := h.taskService.UpdateTask(c.Request.Context(), taskID, req)
+	updated, err := h.taskService.UpdateTask(c.Request.Context(), taskID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, task)
+	if h.hub != nil {
+		h.hub.BroadcastToAll(gin.H{
+			"type":       "TASK_UPDATED",
+			"task_id":    taskID,
+			"project_id": task.ProjectID,
+		})
+	}
+
+	c.JSON(http.StatusOK, updated)
+}
+
+func (h *TaskHandler) getWorkspaceRole(c *gin.Context, workspaceID string) string {
+	userID := c.GetString(middleware.UserIDContextKey)
+	var member struct {
+		Role string
+	}
+	err := h.db.Table("workspace_members").
+		Select("role").
+		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
+		First(&member).Error
+	if err != nil {
+		return ""
+	}
+	return member.Role
 }
 
 func (h *TaskHandler) DeleteTask(c *gin.Context) {
 	taskID := c.Param("id")
 
-	_, ok := h.checkTaskMember(c, taskID)
-	if !ok {
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
 
-	err := h.taskService.DeleteTask(c.Request.Context(), taskID)
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	if role != "owner" && role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: only workspace owners and admins can delete tasks"})
+		return
+	}
+
+	err = h.taskService.DeleteTask(c.Request.Context(), taskID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.hub != nil {
+		h.hub.BroadcastToAll(gin.H{
+			"type":       "TASK_UPDATED",
+			"task_id":    taskID,
+			"project_id": task.ProjectID,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "task archived successfully"})
@@ -213,9 +277,20 @@ func (h *TaskHandler) DeleteTask(c *gin.Context) {
 
 func (h *TaskHandler) UpdateTaskStatus(c *gin.Context) {
 	taskID := c.Param("id")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	_, ok := h.checkTaskMember(c, taskID)
-	if !ok {
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAssignee := task.AssigneeID != nil && *task.AssigneeID == userID
+
+	if !isOwnerOrAdmin && !isAssignee {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: chỉ người được gán công việc hoặc Admin mới được đổi trạng thái"})
 		return
 	}
 
@@ -225,20 +300,39 @@ func (h *TaskHandler) UpdateTaskStatus(c *gin.Context) {
 		return
 	}
 
-	task, err := h.taskService.UpdateTaskStatus(c.Request.Context(), taskID, req)
+	updatedTask, err := h.taskService.UpdateTaskStatus(c.Request.Context(), taskID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, task)
+	if h.hub != nil {
+		h.hub.BroadcastToAll(gin.H{
+			"type":       "TASK_UPDATED",
+			"task_id":    taskID,
+			"project_id": task.ProjectID,
+		})
+	}
+
+	c.JSON(http.StatusOK, updatedTask)
 }
 
 func (h *TaskHandler) UpdateTaskPosition(c *gin.Context) {
 	taskID := c.Param("id")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	_, ok := h.checkTaskMember(c, taskID)
-	if !ok {
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAssignee := task.AssigneeID != nil && *task.AssigneeID == userID
+
+	if !isOwnerOrAdmin && !isAssignee {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: chỉ người được gán công việc hoặc Admin mới được di chuyển công việc"})
 		return
 	}
 
@@ -248,22 +342,41 @@ func (h *TaskHandler) UpdateTaskPosition(c *gin.Context) {
 		return
 	}
 
-	task, err := h.taskService.UpdateTaskPosition(c.Request.Context(), taskID, req)
+	updatedTask, err := h.taskService.UpdateTaskPosition(c.Request.Context(), taskID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, task)
+	if h.hub != nil {
+		h.hub.BroadcastToAll(gin.H{
+			"type":       "TASK_UPDATED",
+			"task_id":    taskID,
+			"project_id": task.ProjectID,
+		})
+	}
+
+	c.JSON(http.StatusOK, updatedTask)
 }
 
 // Subtasks Handler endpoints
 
 func (h *TaskHandler) CreateSubtask(c *gin.Context) {
 	taskID := c.Param("id")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	_, ok := h.checkTaskMember(c, taskID)
-	if !ok {
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAssignee := task.AssigneeID != nil && *task.AssigneeID == userID
+
+	if !isOwnerOrAdmin && !isAssignee {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: chỉ người được gán công việc hoặc Admin mới được tạo việc con"})
 		return
 	}
 
@@ -277,6 +390,13 @@ func (h *TaskHandler) CreateSubtask(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.hub != nil {
+		h.hub.BroadcastToAll(gin.H{
+			"type":    "TASK_UPDATED",
+			"task_id": taskID,
+		})
 	}
 
 	c.JSON(http.StatusCreated, subtask)
@@ -301,17 +421,26 @@ func (h *TaskHandler) GetSubtasks(c *gin.Context) {
 
 func (h *TaskHandler) UpdateSubtask(c *gin.Context) {
 	subtaskId := c.Param("subtaskId")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	var parentTaskID string
-	// Fetch subtask details via Service to authenticate user has access to parent task
 	dbSubtask, err := h.taskService.UpdateSubtask(c.Request.Context(), subtaskId, service.UpdateSubtaskRequest{})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "subtask not found"})
 		return
 	}
-	parentTaskID = dbSubtask.TaskID
-	_, ok := h.checkTaskMember(c, parentTaskID)
-	if !ok {
+
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), dbSubtask.TaskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "parent task not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAssignee := task.AssigneeID != nil && *task.AssigneeID == userID
+
+	if !isOwnerOrAdmin && !isAssignee {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: chỉ người được gán công việc hoặc Admin mới được tích/sửa việc con"})
 		return
 	}
 
@@ -327,20 +456,38 @@ func (h *TaskHandler) UpdateSubtask(c *gin.Context) {
 		return
 	}
 
+	if h.hub != nil {
+		h.hub.BroadcastToAll(gin.H{
+			"type":    "TASK_UPDATED",
+			"task_id": task.ID,
+		})
+	}
+
 	c.JSON(http.StatusOK, updated)
 }
 
 func (h *TaskHandler) DeleteSubtask(c *gin.Context) {
 	subtaskId := c.Param("subtaskId")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	// Same auth check
 	dbSubtask, err := h.taskService.UpdateSubtask(c.Request.Context(), subtaskId, service.UpdateSubtaskRequest{})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "subtask not found"})
 		return
 	}
-	_, ok := h.checkTaskMember(c, dbSubtask.TaskID)
-	if !ok {
+
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), dbSubtask.TaskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "parent task not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAssignee := task.AssigneeID != nil && *task.AssigneeID == userID
+
+	if !isOwnerOrAdmin && !isAssignee {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: only task assignee or admins can delete subtasks"})
 		return
 	}
 

@@ -25,7 +25,7 @@ export function useWebSocket(onMessage?: (data: WebSocketMessage) => void) {
       const token = getAccessToken();
       if (!token) return;
 
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088';
       const wsProtocol = apiBase.startsWith('https') ? 'wss' : 'ws';
       const wsHost = apiBase.replace(/^https?:\/\//, '');
       const wsUrl = `${wsProtocol}://${wsHost}/ws?token=${encodeURIComponent(token)}`;

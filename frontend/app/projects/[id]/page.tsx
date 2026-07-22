@@ -9,6 +9,7 @@ import CreateProjectModal from '@/components/create-project-modal';
 import { KanbanBoard } from '@/components/kanban/kanban-board';
 import { CalendarView } from '@/components/calendar/calendar-view';
 import { NotificationDropdown } from '@/components/notification-dropdown';
+import { useWebSocket } from '@/hooks/use-websocket';
 
 interface UserProfile {
   id: string;
@@ -166,6 +167,21 @@ export default function ProjectPage() {
     enabled: isMounted && !!projectId,
   });
 
+  // Listen for real-time WebSocket updates (comments, task status, subtasks)
+  useWebSocket((msg) => {
+    if (msg.type === 'COMMENT_CREATED' || msg.type === 'TASK_UPDATED') {
+      refetchTasks();
+      if (selectedTaskId) {
+        queryClient.invalidateQueries({ queryKey: ['task-details', selectedTaskId] });
+        queryClient.invalidateQueries({ queryKey: ['comments', selectedTaskId] });
+        queryClient.invalidateQueries({ queryKey: ['subtasks', selectedTaskId] });
+      }
+    }
+  });
+
+  const myMember = (workspaceMembers || []).find((m) => m.user_id === profile?.id);
+  const isOwnerOrAdmin = myMember?.role === 'owner' || myMember?.role === 'admin';
+
   // Task creation mutation
   const createTaskMutation = useMutation({
     mutationFn: async (payload: { title: string }) => {
@@ -190,8 +206,10 @@ export default function ProjectPage() {
     try {
       await api.patch(`/tasks/${taskId}/status`, { status: newStatus });
       refetchTasks();
-    } catch (err) {
-      console.error('Failed to update task status:', err);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Không thể cập nhật trạng thái công việc');
+      refetchTasks();
     }
   };
 
@@ -199,8 +217,10 @@ export default function ProjectPage() {
     try {
       await api.patch(`/tasks/${taskId}/position`, { position: newPosition });
       refetchTasks();
-    } catch (err) {
-      console.error('Failed to update task position:', err);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Không thể di chuyển vị trí công việc');
+      refetchTasks();
     }
   };
 
@@ -500,15 +520,17 @@ export default function ProjectPage() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setIsAddingTask(true)}
-                  className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/10 hover:bg-indigo-50 transition"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Tạo Công Việc
-                </button>
+                {isOwnerOrAdmin && (
+                  <button
+                    onClick={() => setIsAddingTask(true)}
+                    className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/10 hover:bg-indigo-500 transition"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Tạo Công Việc
+                  </button>
+                )}
               </div>
 
               {/* Tasks List Table */}
@@ -636,7 +658,7 @@ export default function ProjectPage() {
                 onSelectTask={(id) => setSelectedTaskId(id)}
                 onUpdateStatus={handleKanbanUpdateStatus}
                 onUpdatePosition={handleKanbanUpdatePosition}
-                onAddTask={handleKanbanAddTask}
+                onAddTask={isOwnerOrAdmin ? handleKanbanAddTask : undefined}
               />
             </div>
           ) : (
@@ -658,6 +680,8 @@ export default function ProjectPage() {
           onClose={() => setSelectedTaskId(null)}
           onRefresh={refetchTasks}
           workspaceMembers={workspaceMembers || []}
+          currentUserId={profile?.id}
+          currentUserRole={(workspaceMembers || []).find((m) => m.user_id === profile?.id)?.role || 'member'}
         />
       )}
 
@@ -681,6 +705,8 @@ interface TaskDetailDrawerProps {
   onClose: () => void;
   onRefresh: () => void;
   workspaceMembers: WorkspaceMemberDetailed[];
+  currentUserId?: string;
+  currentUserRole?: string;
 }
 
 interface TagItem {
@@ -712,7 +738,7 @@ interface CommentItem {
   user_avatar: string;
 }
 
-function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: TaskDetailDrawerProps) {
+function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers, currentUserId, currentUserRole }: TaskDetailDrawerProps) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -823,6 +849,11 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
       queryClient.invalidateQueries({ queryKey: ['task-details', taskId] });
       onRefresh();
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (err: any) => {
+      alert(err.response?.data?.error || 'Không thể cập nhật công việc');
+      queryClient.invalidateQueries({ queryKey: ['task-details', taskId] });
+    },
   });
 
   const updateStatusMutation = useMutation({
@@ -830,7 +861,13 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
       return await api.patch(`/tasks/${taskId}/status`, { status: newStatus });
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['task-details', taskId] });
       onRefresh();
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (err: any) => {
+      alert(err.response?.data?.error || 'Không thể cập nhật trạng thái công việc');
+      queryClient.invalidateQueries({ queryKey: ['task-details', taskId] });
     },
   });
 
@@ -999,6 +1036,10 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  const isOwnerOrAdmin = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const isAssignee = !!(task?.assignee_id && currentUserId && task.assignee_id === currentUserId);
+  const canEditTaskFields = isOwnerOrAdmin || isAssignee;
+
   if (taskLoading) {
     return (
       <div className="fixed inset-y-0 right-0 z-40 w-96 border-l border-white/10 bg-slate-900 p-6 shadow-2xl backdrop-blur-xl">
@@ -1015,19 +1056,21 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
       <div className="flex items-center justify-between border-b border-white/5 px-6 py-4 bg-slate-950/20">
         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Chi Tiết Công Việc</span>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              if (confirm('Bạn có chắc chắn muốn xóa công việc này không?')) {
-                deleteTaskMutation.mutate();
-              }
-            }}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-rose-400 transition"
-            title="Xóa công việc"
-          >
-            <svg className="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
+          {isOwnerOrAdmin && (
+            <button
+              onClick={() => {
+                if (confirm('Bạn có chắc chắn muốn xóa công việc này không?')) {
+                  deleteTaskMutation.mutate();
+                }
+              }}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-rose-400 transition"
+              title="Xóa công việc (Chỉ Admin/Owner)"
+            >
+              <svg className="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={onClose}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition"
@@ -1048,7 +1091,9 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={handleFieldBlur}
-            className="w-full bg-transparent text-lg font-bold text-white border border-transparent hover:border-slate-800 focus:border-indigo-500 focus:bg-slate-950/40 rounded-lg px-2 py-1 focus:outline-none"
+            disabled={!canEditTaskFields}
+            title={!canEditTaskFields ? "Chỉ Admin/Owner hoặc Người được gán task mới có quyền sửa tiêu đề" : ""}
+            className="w-full bg-transparent text-lg font-bold text-white border border-transparent hover:border-slate-800 focus:border-indigo-500 focus:bg-slate-950/40 rounded-lg px-2 py-1 focus:outline-none disabled:opacity-75 disabled:cursor-not-allowed"
             placeholder="Tiêu đề công việc"
           />
         </div>
@@ -1057,12 +1102,14 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nhãn thẻ (Tags)</label>
-            <button
-              onClick={() => setIsCreatingTag(!isCreatingTag)}
-              className="text-[11px] font-medium text-indigo-400 hover:underline"
-            >
-              {isCreatingTag ? 'Hủy' : '+ Tạo nhãn mới'}
-            </button>
+            {canEditTaskFields && (
+              <button
+                onClick={() => setIsCreatingTag(!isCreatingTag)}
+                className="text-[11px] font-medium text-indigo-400 hover:underline"
+              >
+                {isCreatingTag ? 'Hủy' : '+ Tạo nhãn mới'}
+              </button>
+            )}
           </div>
 
           {/* Attached tags list */}
@@ -1075,12 +1122,14 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                   style={{ backgroundColor: tg.color }}
                 >
                   {tg.name}
-                  <button
-                    onClick={() => detachTagMutation.mutate(tg.id)}
-                    className="hover:opacity-75"
-                  >
-                    &times;
-                  </button>
+                  {canEditTaskFields && (
+                    <button
+                      onClick={() => detachTagMutation.mutate(tg.id)}
+                      className="hover:opacity-75"
+                    >
+                      &times;
+                    </button>
+                  )}
                 </span>
               ))
             ) : (
@@ -1089,7 +1138,7 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
           </div>
 
           {/* Tag selector dropdown */}
-          {workspaceTags && workspaceTags.length > 0 && (
+          {canEditTaskFields && workspaceTags && workspaceTags.length > 0 && (
             <div className="flex items-center gap-2 pt-1">
               <span className="text-xs text-slate-500">Gắn nhãn:</span>
               <select
@@ -1099,11 +1148,11 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                     e.target.value = '';
                   }
                 }}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none"
+                className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none max-w-[200px]"
               >
-                <option value="">-- Chọn nhãn từ Workspace --</option>
+                <option value="">+ Thêm nhãn có sẵn</option>
                 {workspaceTags
-                  .filter((wt) => !taskTags?.some((tt) => tt.id === wt.id))
+                  .filter((wt) => !(taskTags || []).some((tt) => tt.id === wt.id))
                   .map((wt) => (
                     <option key={wt.id} value={wt.id}>
                       {wt.name}
@@ -1113,25 +1162,25 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
             </div>
           )}
 
-          {/* Create tag inline form */}
-          {isCreatingTag && (
-            <form onSubmit={handleCreateTag} className="flex gap-2 pt-2 border-t border-white/5">
+          {/* Inline Tag Creator Form */}
+          {canEditTaskFields && isCreatingTag && (
+            <form onSubmit={handleCreateTag} className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
               <input
                 type="text"
                 value={newTagName}
                 onChange={(e) => setNewTagName(e.target.value)}
-                placeholder="Tên nhãn (vd: Priority, UI/UX...)"
-                className="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1 text-xs text-white placeholder-slate-600 focus:outline-none"
+                placeholder="Tên nhãn mới..."
+                className="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
               />
               <input
                 type="color"
                 value={newTagColor}
                 onChange={(e) => setNewTagColor(e.target.value)}
-                className="h-7 w-7 rounded border-0 bg-transparent cursor-pointer"
-                title="Chọn màu nhãn"
+                className="h-7 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
               />
               <button
                 type="submit"
+                disabled={createTagMutation.isPending}
                 className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-500"
               >
                 Tạo
@@ -1140,14 +1189,19 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
           )}
         </div>
 
-        {/* Properties table */}
-        <div className="space-y-3 rounded-2xl border border-white/5 bg-slate-950/20 p-4">
+        {/* Task Attributes Panel */}
+        <div className="rounded-xl border border-white/5 bg-slate-950/40 p-4 space-y-3">
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-400 font-semibold">Trạng thái:</span>
             <select
               value={status}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none"
+              onChange={(e) => {
+                setStatus(e.target.value);
+                updateStatusMutation.mutate(e.target.value);
+              }}
+              disabled={!canEditTaskFields}
+              title={!canEditTaskFields ? "Chỉ Admin/Owner hoặc Người được gán task mới có quyền đổi trạng thái" : ""}
+              className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <option value="todo">Cần làm</option>
               <option value="in_progress">Đang làm</option>
@@ -1163,7 +1217,9 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                 setPriority(e.target.value);
                 updateTaskMutation.mutate({ priority: e.target.value });
               }}
-              className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none"
+              disabled={!canEditTaskFields}
+              title={!canEditTaskFields ? "Chỉ Admin/Owner hoặc Người được gán task mới có quyền sửa Độ ưu tiên" : ""}
+              className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <option value="low">Thấp</option>
               <option value="medium">Trung bình</option>
@@ -1179,7 +1235,9 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                 setAssigneeId(e.target.value);
                 updateTaskMutation.mutate({ assignee_id: e.target.value ? e.target.value : undefined });
               }}
-              className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none max-w-[180px]"
+              disabled={!canEditTaskFields}
+              title={!canEditTaskFields ? "Chỉ Admin/Owner hoặc Người được gán task mới có quyền phân công lại" : ""}
+              className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none max-w-[180px] disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <option value="">Chưa phân công</option>
               {workspaceMembers.map((m) => (
@@ -1199,7 +1257,9 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                 setDueDate(e.target.value);
                 updateTaskMutation.mutate({ due_date: e.target.value ? new Date(e.target.value).toISOString() : undefined });
               }}
-              className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none"
+              disabled={!canEditTaskFields}
+              title={!canEditTaskFields ? "Chỉ Admin/Owner hoặc Người được gán task mới có quyền sửa Hạn chót" : ""}
+              className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
             />
           </div>
         </div>
@@ -1211,9 +1271,10 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             onBlur={handleFieldBlur}
+            disabled={!canEditTaskFields}
             rows={3}
             placeholder="Viết mô tả ngắn về công việc..."
-            className="w-full rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+            className="w-full rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
           />
         </div>
 
@@ -1221,21 +1282,23 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
         <div className="border-t border-white/5 pt-4 space-y-3">
           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Danh sách việc con (Checklist)</label>
 
-          <form onSubmit={handleAddSubtask} className="flex gap-2">
-            <input
-              type="text"
-              value={newSubtaskTitle}
-              onChange={(e) => setNewSubtaskTitle(e.target.value)}
-              placeholder="Thêm việc con mới..."
-              className="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
-            />
-            <button
-              type="submit"
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
-            >
-              Thêm
-            </button>
-          </form>
+          {canEditTaskFields && (
+            <form onSubmit={handleAddSubtask} className="flex gap-2">
+              <input
+                type="text"
+                value={newSubtaskTitle}
+                onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                placeholder="Thêm việc con mới..."
+                className="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                type="submit"
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
+              >
+                Thêm
+              </button>
+            </form>
+          )}
 
           <div className="space-y-1.5">
             {subtasks && subtasks.length > 0 ? (
@@ -1248,21 +1311,32 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                     <input
                       type="checkbox"
                       checked={sub.is_done}
+                      disabled={!canEditTaskFields}
                       onChange={(e) => toggleSubtaskMutation.mutate({ subtaskId: sub.id, isDone: e.target.checked })}
-                      className="h-3.5 w-3.5 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0 focus:ring-offset-0"
+                      className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-indigo-600 shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
                     />
-                    <span className={`text-xs text-slate-200 truncate ${sub.is_done ? 'line-through text-slate-500' : ''}`}>
+                    <span
+                      onClick={() => {
+                        if (canEditTaskFields) {
+                          toggleSubtaskMutation.mutate({ subtaskId: sub.id, isDone: !sub.is_done });
+                        }
+                      }}
+                      className={`text-xs select-none truncate ${canEditTaskFields ? 'cursor-pointer' : 'cursor-not-allowed'} ${sub.is_done ? 'line-through text-slate-500' : 'text-slate-200 hover:text-white'}`}
+                    >
                       {sub.title}
                     </span>
                   </div>
-                  <button
-                    onClick={() => deleteSubtaskMutation.mutate(sub.id)}
-                    className="rounded-md p-1 text-slate-600 hover:bg-slate-800 hover:text-rose-400 transition"
-                  >
-                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                  {canEditTaskFields && (
+                    <button
+                      onClick={() => deleteSubtaskMutation.mutate(sub.id)}
+                      className="rounded-md p-1 text-slate-600 hover:bg-slate-800 hover:text-rose-400 transition"
+                      title="Xóa việc con"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               ))
             ) : (
@@ -1275,15 +1349,17 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
         <div className="border-t border-white/5 pt-4 space-y-3">
           <div className="flex items-center justify-between">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">File đính kèm (Attachments)</label>
-            <label className="cursor-pointer text-[11px] font-medium text-indigo-400 hover:underline">
-              {isUploading ? 'Đang tải lên...' : '+ Tải tệp mới (Tối đa 5MB)'}
-              <input
-                type="file"
-                className="hidden"
-                onChange={handleFileUpload}
-                disabled={isUploading}
-              />
-            </label>
+            {canEditTaskFields && (
+              <label className="cursor-pointer text-[11px] font-medium text-indigo-400 hover:underline">
+                {isUploading ? 'Đang tải lên...' : '+ Tải tệp mới (Tối đa 5MB)'}
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                />
+              </label>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -1301,7 +1377,7 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                     </div>
                     <div className="overflow-hidden">
                       <a
-                        href={`http://localhost:8081${att.file_url}`}
+                        href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8088'}${att.file_url}`}
                         target="_blank"
                         rel="noreferrer"
                         className="block truncate text-xs font-semibold text-indigo-300 hover:underline"
@@ -1314,15 +1390,17 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => deleteAttachmentMutation.mutate(att.id)}
-                    className="rounded-md p-1 text-slate-600 hover:bg-slate-800 hover:text-rose-400 transition shrink-0"
-                    title="Xóa tệp đính kèm"
-                  >
-                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                  {canEditTaskFields && (
+                    <button
+                      onClick={() => deleteAttachmentMutation.mutate(att.id)}
+                      className="rounded-md p-1 text-slate-600 hover:bg-slate-800 hover:text-rose-400 transition shrink-0"
+                      title="Xóa tệp đính kèm"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               ))
             ) : (
@@ -1340,15 +1418,16 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
             <textarea
               value={newCommentText}
               onChange={(e) => setNewCommentText(e.target.value)}
+              disabled={!canEditTaskFields}
               rows={2}
-              placeholder="Viết bình luận của bạn..."
-              className="w-full rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+              placeholder={canEditTaskFields ? "Viết bình luận của bạn..." : "Chỉ Admin/Owner hoặc Người được gán công việc mới được gửi bình luận..."}
+              className="w-full rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
             />
             <div className="flex justify-end">
               <button
                 type="submit"
-                disabled={createCommentMutation.isPending || !newCommentText.trim()}
-                className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-indigo-500 disabled:opacity-50"
+                disabled={!canEditTaskFields || createCommentMutation.isPending || !newCommentText.trim()}
+                className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Gửi bình luận
               </button>
@@ -1371,7 +1450,7 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
                           {new Date(cm.created_at).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
                         </span>
                       </div>
-                      {currentUser && currentUser.id === cm.user_id && (
+                      {currentUser && (currentUser.id === cm.user_id || currentUserRole === 'owner' || currentUserRole === 'admin') && (
                         <button
                           onClick={() => deleteCommentMutation.mutate(cm.id)}
                           className="text-[10px] text-slate-600 hover:text-rose-400 transition"

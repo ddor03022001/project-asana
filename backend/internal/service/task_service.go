@@ -20,9 +20,9 @@ type CreateTaskRequest struct {
 }
 
 type UpdateTaskRequest struct {
-	Title       string     `json:"title" binding:"required"`
-	Description string     `json:"description"`
-	Priority    string     `json:"priority" binding:"required,oneof=low medium high"`
+	Title       *string    `json:"title"`
+	Description *string    `json:"description"`
+	Priority    *string    `json:"priority" binding:"omitempty,oneof=low medium high"`
 	DueDate     *time.Time `json:"due_date"`
 	AssigneeID  *string    `json:"assignee_id"`
 }
@@ -123,11 +123,25 @@ func (s *taskService) UpdateTask(ctx context.Context, id string, req UpdateTaskR
 		return nil, errors.New("task not found")
 	}
 
-	task.Title = req.Title
-	task.Description = req.Description
-	task.Priority = req.Priority
-	task.DueDate = req.DueDate
-	task.AssigneeID = req.AssigneeID
+	if req.Title != nil && *req.Title != "" {
+		task.Title = *req.Title
+	}
+	if req.Description != nil {
+		task.Description = *req.Description
+	}
+	if req.Priority != nil && *req.Priority != "" {
+		task.Priority = *req.Priority
+	}
+	if req.DueDate != nil {
+		task.DueDate = req.DueDate
+	}
+	if req.AssigneeID != nil {
+		if *req.AssigneeID == "" {
+			task.AssigneeID = nil
+		} else {
+			task.AssigneeID = req.AssigneeID
+		}
+	}
 	task.UpdatedAt = time.Now()
 
 	if err := s.taskRepo.Update(ctx, task); err != nil {

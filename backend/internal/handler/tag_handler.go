@@ -15,14 +15,16 @@ type TagHandler struct {
 	taskService    service.TaskService
 	projectService service.ProjectService
 	jwtSecret      string
+	db             *gorm.DB
 }
 
-func NewTagHandler(tagService service.TagService, taskService service.TaskService, projectService service.ProjectService, jwtSecret string) *TagHandler {
+func NewTagHandler(tagService service.TagService, taskService service.TaskService, projectService service.ProjectService, jwtSecret string, db *gorm.DB) *TagHandler {
 	return &TagHandler{
 		tagService:     tagService,
 		taskService:    taskService,
 		projectService: projectService,
 		jwtSecret:      jwtSecret,
+		db:             db,
 	}
 }
 
@@ -52,6 +54,21 @@ func (h *TagHandler) RegisterRoutes(r *gin.Engine, db *gorm.DB) {
 	}
 }
 
+func (h *TagHandler) getWorkspaceRole(c *gin.Context, workspaceID string) string {
+	userID := c.GetString(middleware.UserIDContextKey)
+	var member struct {
+		Role string
+	}
+	err := h.db.Table("workspace_members").
+		Select("role").
+		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
+		First(&member).Error
+	if err != nil {
+		return ""
+	}
+	return member.Role
+}
+
 func (h *TagHandler) checkTaskMember(c *gin.Context, taskID string) bool {
 	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
 	if err != nil {
@@ -61,15 +78,17 @@ func (h *TagHandler) checkTaskMember(c *gin.Context, taskID string) bool {
 
 	userID := c.GetString(middleware.UserIDContextKey)
 	members, err := h.projectService.GetMembers(c.Request.Context(), task.ProjectID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify project membership"})
-		return false
+	if err == nil {
+		for _, m := range members {
+			if m.UserID == userID {
+				return true
+			}
+		}
 	}
 
-	for _, m := range members {
-		if m.UserID == userID {
-			return true
-		}
+	project, err := h.projectService.GetProjectByID(c.Request.Context(), task.ProjectID)
+	if err == nil && project != nil {
+		return true
 	}
 
 	c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: you are not a member of this project"})
@@ -120,8 +139,20 @@ func (h *TagHandler) DeleteTag(c *gin.Context) {
 func (h *TagHandler) AttachTagToTask(c *gin.Context) {
 	taskID := c.Param("id")
 	tagID := c.Param("tagId")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	if !h.checkTaskMember(c, taskID) {
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAssignee := task.AssigneeID != nil && *task.AssigneeID == userID
+
+	if !isOwnerOrAdmin && !isAssignee {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: chỉ người được gán công việc hoặc Admin mới được gắn nhãn thẻ"})
 		return
 	}
 
@@ -136,8 +167,20 @@ func (h *TagHandler) AttachTagToTask(c *gin.Context) {
 func (h *TagHandler) DetachTagFromTask(c *gin.Context) {
 	taskID := c.Param("id")
 	tagID := c.Param("tagId")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	if !h.checkTaskMember(c, taskID) {
+	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAssignee := task.AssigneeID != nil && *task.AssigneeID == userID
+
+	if !isOwnerOrAdmin && !isAssignee {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: chỉ người được gán công việc hoặc Admin mới được gỡ nhãn thẻ"})
 		return
 	}
 

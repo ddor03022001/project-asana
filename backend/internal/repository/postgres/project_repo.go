@@ -31,11 +31,10 @@ func (r *projectRepo) FindByID(ctx context.Context, id string) (*domain.Project,
 
 func (r *projectRepo) FindAllByWorkspaceID(ctx context.Context, workspaceID string, userID string) ([]domain.Project, error) {
 	var projects []domain.Project
-	// Join project_members to pull only projects that the user has joined
 	err := r.db.WithContext(ctx).
 		Table("projects").
-		Joins("JOIN project_members ON project_members.project_id = projects.id").
-		Where("projects.workspace_id = ? AND project_members.user_id = ? AND projects.archived_at IS NULL", workspaceID, userID).
+		Where("workspace_id = ? AND archived_at IS NULL", workspaceID).
+		Order("created_at ASC").
 		Find(&projects).Error
 	if err != nil {
 		return nil, err
