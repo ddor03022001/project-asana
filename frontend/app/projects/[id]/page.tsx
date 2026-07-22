@@ -8,6 +8,7 @@ import WorkspaceSwitcher from '@/components/workspace-switcher';
 import CreateProjectModal from '@/components/create-project-modal';
 import { KanbanBoard } from '@/components/kanban/kanban-board';
 import { CalendarView } from '@/components/calendar/calendar-view';
+import { NotificationDropdown } from '@/components/notification-dropdown';
 
 interface UserProfile {
   id: string;
@@ -415,29 +416,34 @@ export default function ProjectPage() {
               <h1 className="text-xl font-bold text-white tracking-tight">{project.name}</h1>
             </div>
 
-            {/* Tab Navigation Switcher */}
-            <div className="flex rounded-xl bg-slate-950 p-1 border border-white/5">
-              <button
-                onClick={() => setActiveTab('list')}
-                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-              >
-                Danh sách (List)
-              </button>
-              <button
-                onClick={() => setActiveTab('board')}
-                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'board' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-              >
-                Kanban Board
-              </button>
-              <button
-                onClick={() => setActiveTab('calendar')}
-                className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'calendar' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-              >
-                Lịch (Calendar)
-              </button>
+            <div className="flex items-center gap-4">
+              {/* Notification Bell Dropdown */}
+              <NotificationDropdown onSelectTask={(id) => setSelectedTaskId(id)} />
+
+              {/* Tab Navigation Switcher */}
+              <div className="flex rounded-xl bg-slate-950 p-1 border border-white/5">
+                <button
+                  onClick={() => setActiveTab('list')}
+                  className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                >
+                  Danh sách (List)
+                </button>
+                <button
+                  onClick={() => setActiveTab('board')}
+                  className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'board' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                >
+                  Kanban Board
+                </button>
+                <button
+                  onClick={() => setActiveTab('calendar')}
+                  className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${activeTab === 'calendar' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                >
+                  Lịch (Calendar)
+                </button>
+              </div>
             </div>
           </div>
         </header>
