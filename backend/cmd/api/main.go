@@ -81,6 +81,18 @@ func main() {
 	taskService := service.NewTaskService(taskRepo)
 	taskHandler := handler.NewTaskHandler(taskService, projectService, cfg.JWTSecret)
 
+	commentRepo := postgresRepo.NewCommentRepository(db)
+	commentService := service.NewCommentService(commentRepo)
+	commentHandler := handler.NewCommentHandler(commentService, taskService, projectService, cfg.JWTSecret)
+
+	tagRepo := postgresRepo.NewTagRepository(db)
+	tagService := service.NewTagService(tagRepo)
+	tagHandler := handler.NewTagHandler(tagService, taskService, projectService, cfg.JWTSecret)
+
+	attachmentRepo := postgresRepo.NewAttachmentRepository(db)
+	attachmentService := service.NewAttachmentService(attachmentRepo, "./uploads")
+	attachmentHandler := handler.NewAttachmentHandler(attachmentService, taskService, projectService, cfg.JWTSecret)
+
 	// 4. Initialize Gin engine
 	r := gin.New()
 
@@ -88,6 +100,9 @@ func main() {
 	r.Use(middleware.Logger())
 	r.Use(middleware.Recovery())
 	r.Use(middleware.CORS())
+
+	// Serve static files uploaded by users
+	r.Static("/uploads", "./uploads")
 
 	// Health check route
 	r.GET("/ping", func(c *gin.Context) {
@@ -115,6 +130,11 @@ func main() {
 
 	// Register Task routes
 	taskHandler.RegisterRoutes(r)
+
+	// Register Comment, Tag, Attachment routes
+	commentHandler.RegisterRoutes(r)
+	tagHandler.RegisterRoutes(r, db)
+	attachmentHandler.RegisterRoutes(r)
 
 	// Test private endpoint protected by JWT verification middleware
 	r.GET("/protected", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) {

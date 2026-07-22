@@ -624,6 +624,35 @@ interface TaskDetailDrawerProps {
   workspaceMembers: WorkspaceMemberDetailed[];
 }
 
+interface TagItem {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string;
+}
+
+interface AttachmentItem {
+  id: string;
+  task_id: string;
+  uploaded_by?: string;
+  file_name: string;
+  file_url: string;
+  file_size: number;
+  mime_type: string;
+  created_at: string;
+}
+
+interface CommentItem {
+  id: string;
+  task_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user_name: string;
+  user_email: string;
+  user_avatar: string;
+}
+
 function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: TaskDetailDrawerProps) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
@@ -634,12 +663,32 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
   const [assigneeId, setAssigneeId] = useState('');
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
 
+  // Comment state
+  const [newCommentText, setNewCommentText] = useState('');
+
+  // Tag creation state
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#6366f1');
+  const [isCreatingTag, setIsCreatingTag] = useState(false);
+
+  // File upload loading state
+  const [isUploading, setIsUploading] = useState(false);
+
   // Fetch task details inside drawer
   const { data: task, isLoading: taskLoading } = useQuery<Task>({
     queryKey: ['task-details', taskId],
     queryFn: async () => {
       const response = await api.get(`/tasks/${taskId}`);
       return response.data;
+    },
+  });
+
+  // Fetch current user profile to determine comment delete permissions
+  const { data: currentUser } = useQuery<{ id: string; email: string }>({
+    queryKey: ['current-user'],
+    queryFn: async () => {
+      const response = await api.get('/protected');
+      return { id: response.data.user_id, email: response.data.email };
     },
   });
 
@@ -652,30 +701,61 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
     },
   });
 
+  // Fetch task tags
+  const { data: taskTags, refetch: refetchTaskTags } = useQuery<TagItem[]>({
+    queryKey: ['task-tags', taskId],
+    queryFn: async () => {
+      const response = await api.get(`/tasks/${taskId}/tags`);
+      return response.data;
+    },
+  });
+
+  // Fetch all workspace tags
+  const { data: workspaceTags, refetch: refetchWorkspaceTags } = useQuery<TagItem[]>({
+    queryKey: ['workspace-tags', task?.workspace_id],
+    queryFn: async () => {
+      const response = await api.get(`/workspaces/${task?.workspace_id}/tags`);
+      return response.data;
+    },
+    enabled: !!task?.workspace_id,
+  });
+
+  // Fetch task attachments
+  const { data: attachments, refetch: refetchAttachments } = useQuery<AttachmentItem[]>({
+    queryKey: ['attachments', taskId],
+    queryFn: async () => {
+      const response = await api.get(`/tasks/${taskId}/attachments`);
+      return response.data;
+    },
+  });
+
+  // Fetch task comments
+  const { data: comments, refetch: refetchComments } = useQuery<CommentItem[]>({
+    queryKey: ['comments', taskId],
+    queryFn: async () => {
+      const response = await api.get(`/tasks/${taskId}/comments`);
+      return response.data;
+    },
+  });
+
   // Populate state on load
   useEffect(() => {
     if (task) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTitle(task.title);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDescription(task.description || '');
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPriority(task.priority);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus(task.status);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAssigneeId(task.assignee_id || '');
       if (task.due_date) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setDueDate(new Date(task.due_date).toISOString().substring(0, 10));
       } else {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setDueDate('');
       }
     }
   }, [task]);
 
-  // Mutations to update task properties
+  // Task property mutations
   const updateTaskMutation = useMutation({
     mutationFn: async (payload: Partial<Task>) => {
       return await api.patch(`/tasks/${taskId}`, payload);
@@ -686,7 +766,6 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
     },
   });
 
-  // Mutation to update task status
   const updateStatusMutation = useMutation({
     mutationFn: async (newStatus: string) => {
       return await api.patch(`/tasks/${taskId}/status`, { status: newStatus });
@@ -696,7 +775,7 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
     },
   });
 
-  // Checklist subtask mutations
+  // Subtask mutations
   const createSubtaskMutation = useMutation({
     mutationFn: async (title: string) => {
       return await api.post(`/tasks/${taskId}/subtasks`, { title });
@@ -722,6 +801,66 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
     },
     onSuccess: () => {
       refetchSubtasks();
+    },
+  });
+
+  // Tag mutations
+  const createTagMutation = useMutation({
+    mutationFn: async ({ name, color }: { name: string; color: string }) => {
+      return await api.post(`/workspaces/${task?.workspace_id}/tags`, { name, color });
+    },
+    onSuccess: () => {
+      setNewTagName('');
+      setIsCreatingTag(false);
+      refetchWorkspaceTags();
+    },
+  });
+
+  const attachTagMutation = useMutation({
+    mutationFn: async (tagId: string) => {
+      return await api.post(`/tasks/${taskId}/tags/${tagId}`);
+    },
+    onSuccess: () => {
+      refetchTaskTags();
+    },
+  });
+
+  const detachTagMutation = useMutation({
+    mutationFn: async (tagId: string) => {
+      return await api.delete(`/tasks/${taskId}/tags/${tagId}`);
+    },
+    onSuccess: () => {
+      refetchTaskTags();
+    },
+  });
+
+  // Comment mutations
+  const createCommentMutation = useMutation({
+    mutationFn: async (content: string) => {
+      return await api.post(`/tasks/${taskId}/comments`, { content });
+    },
+    onSuccess: () => {
+      setNewCommentText('');
+      refetchComments();
+    },
+  });
+
+  const deleteCommentMutation = useMutation({
+    mutationFn: async (commentId: string) => {
+      return await api.delete(`/comments/${commentId}`);
+    },
+    onSuccess: () => {
+      refetchComments();
+    },
+  });
+
+  // Attachment mutation
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: async (attachmentId: string) => {
+      return await api.delete(`/attachments/${attachmentId}`);
+    },
+    onSuccess: () => {
+      refetchAttachments();
     },
   });
 
@@ -756,6 +895,51 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
     createSubtaskMutation.mutate(newSubtaskTitle.trim());
   };
 
+  const handleAddComment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCommentText.trim()) return;
+    createCommentMutation.mutate(newCommentText.trim());
+  };
+
+  const handleCreateTag = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTagName.trim()) return;
+    createTagMutation.mutate({ name: newTagName.trim(), color: newTagColor });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Tệp tin vượt quá dung lượng cho phép (Tối đa 5MB)');
+      return;
+    }
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      await api.post(`/tasks/${taskId}/attachments`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      refetchAttachments();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Không thể tải tệp tin lên');
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
   if (taskLoading) {
     return (
       <div className="fixed inset-y-0 right-0 z-40 w-96 border-l border-white/10 bg-slate-900 p-6 shadow-2xl backdrop-blur-xl">
@@ -767,7 +951,7 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-[420px] flex flex-col border-l border-white/10 bg-slate-900/95 shadow-2xl backdrop-blur-xl animate-in slide-in-from-right duration-250">
+    <div className="fixed inset-y-0 right-0 z-40 w-[460px] flex flex-col border-l border-white/10 bg-slate-900/95 shadow-2xl backdrop-blur-xl animate-in slide-in-from-right duration-250">
       {/* Header operations */}
       <div className="flex items-center justify-between border-b border-white/5 px-6 py-4 bg-slate-950/20">
         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Chi Tiết Công Việc</span>
@@ -797,7 +981,7 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
       </div>
 
       {/* Details settings form */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+      <div className="flex-1 overflow-y-auto p-6 space-y-5 scrollbar-thin scrollbar-thumb-slate-800">
         {/* Title editing */}
         <div>
           <input
@@ -808,6 +992,93 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
             className="w-full bg-transparent text-lg font-bold text-white border border-transparent hover:border-slate-800 focus:border-indigo-500 focus:bg-slate-950/40 rounded-lg px-2 py-1 focus:outline-none"
             placeholder="Tiêu đề công việc"
           />
+        </div>
+
+        {/* Tags Section */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nhãn thẻ (Tags)</label>
+            <button
+              onClick={() => setIsCreatingTag(!isCreatingTag)}
+              className="text-[11px] font-medium text-indigo-400 hover:underline"
+            >
+              {isCreatingTag ? 'Hủy' : '+ Tạo nhãn mới'}
+            </button>
+          </div>
+
+          {/* Attached tags list */}
+          <div className="flex flex-wrap items-center gap-1.5 min-h-[28px]">
+            {taskTags && taskTags.length > 0 ? (
+              taskTags.map((tg) => (
+                <span
+                  key={tg.id}
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm"
+                  style={{ backgroundColor: tg.color }}
+                >
+                  {tg.name}
+                  <button
+                    onClick={() => detachTagMutation.mutate(tg.id)}
+                    className="hover:opacity-75"
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))
+            ) : (
+              <span className="text-xs text-slate-600 italic">Chưa gắn nhãn</span>
+            )}
+          </div>
+
+          {/* Tag selector dropdown */}
+          {workspaceTags && workspaceTags.length > 0 && (
+            <div className="flex items-center gap-2 pt-1">
+              <span className="text-xs text-slate-500">Gắn nhãn:</span>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    attachTagMutation.mutate(e.target.value);
+                    e.target.value = '';
+                  }
+                }}
+                className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="">-- Chọn nhãn từ Workspace --</option>
+                {workspaceTags
+                  .filter((wt) => !taskTags?.some((tt) => tt.id === wt.id))
+                  .map((wt) => (
+                    <option key={wt.id} value={wt.id}>
+                      {wt.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+
+          {/* Create tag inline form */}
+          {isCreatingTag && (
+            <form onSubmit={handleCreateTag} className="flex gap-2 pt-2 border-t border-white/5">
+              <input
+                type="text"
+                value={newTagName}
+                onChange={(e) => setNewTagName(e.target.value)}
+                placeholder="Tên nhãn (vd: Priority, UI/UX...)"
+                className="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1 text-xs text-white placeholder-slate-600 focus:outline-none"
+              />
+              <input
+                type="color"
+                value={newTagColor}
+                onChange={(e) => setNewTagColor(e.target.value)}
+                className="h-7 w-7 rounded border-0 bg-transparent cursor-pointer"
+                title="Chọn màu nhãn"
+              />
+              <button
+                type="submit"
+                className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-500"
+              >
+                Tạo
+              </button>
+            </form>
+          )}
         </div>
 
         {/* Properties table */}
@@ -891,7 +1162,6 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
         <div className="border-t border-white/5 pt-4 space-y-3">
           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Danh sách việc con (Checklist)</label>
 
-          {/* New subtask creator */}
           <form onSubmit={handleAddSubtask} className="flex gap-2">
             <input
               type="text"
@@ -908,7 +1178,6 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
             </button>
           </form>
 
-          {/* Subtasks listing */}
           <div className="space-y-1.5">
             {subtasks && subtasks.length > 0 ? (
               subtasks.map((sub) => (
@@ -942,7 +1211,130 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers }: Task
             )}
           </div>
         </div>
+
+        {/* Attachments panel */}
+        <div className="border-t border-white/5 pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">File đính kèm (Attachments)</label>
+            <label className="cursor-pointer text-[11px] font-medium text-indigo-400 hover:underline">
+              {isUploading ? 'Đang tải lên...' : '+ Tải tệp mới (Tối đa 5MB)'}
+              <input
+                type="file"
+                className="hidden"
+                onChange={handleFileUpload}
+                disabled={isUploading}
+              />
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            {attachments && attachments.length > 0 ? (
+              attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className="flex items-center justify-between rounded-xl border border-white/5 bg-slate-950/20 p-3 transition hover:border-white/10"
+                >
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600/10 text-indigo-400 shrink-0">
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                    </div>
+                    <div className="overflow-hidden">
+                      <a
+                        href={`http://localhost:8081${att.file_url}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate text-xs font-semibold text-indigo-300 hover:underline"
+                      >
+                        {att.file_name}
+                      </a>
+                      <span className="text-[10px] text-slate-500">
+                        {formatFileSize(att.file_size)} • {new Date(att.created_at).toLocaleDateString('vi-VN')}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => deleteAttachmentMutation.mutate(att.id)}
+                    className="rounded-md p-1 text-slate-600 hover:bg-slate-800 hover:text-rose-400 transition shrink-0"
+                    title="Xóa tệp đính kèm"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="py-2 text-center text-[11px] text-slate-600 italic">Chưa có file đính kèm nào</p>
+            )}
+          </div>
+        </div>
+
+        {/* Comments timeline section */}
+        <div className="border-t border-white/5 pt-4 space-y-4">
+          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Thảo luận & Bình luận (Comments)</label>
+
+          {/* New comment input form */}
+          <form onSubmit={handleAddComment} className="space-y-2">
+            <textarea
+              value={newCommentText}
+              onChange={(e) => setNewCommentText(e.target.value)}
+              rows={2}
+              placeholder="Viết bình luận của bạn..."
+              className="w-full rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+            />
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={createCommentMutation.isPending || !newCommentText.trim()}
+                className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-indigo-500 disabled:opacity-50"
+              >
+                Gửi bình luận
+              </button>
+            </div>
+          </form>
+
+          {/* Comments list timeline */}
+          <div className="space-y-3 pt-2">
+            {comments && comments.length > 0 ? (
+              comments.map((cm) => (
+                <div key={cm.id} className="flex gap-3 text-xs">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-950 font-bold text-indigo-300 border border-indigo-500/20 text-[10px] uppercase shrink-0 mt-0.5">
+                    {cm.user_email ? cm.user_email.substring(0, 1) : 'U'}
+                  </div>
+                  <div className="flex-1 space-y-1 overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-200">{cm.user_name || cm.user_email}</span>
+                        <span className="text-[10px] text-slate-500">
+                          {new Date(cm.created_at).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
+                        </span>
+                      </div>
+                      {currentUser && currentUser.id === cm.user_id && (
+                        <button
+                          onClick={() => deleteCommentMutation.mutate(cm.id)}
+                          className="text-[10px] text-slate-600 hover:text-rose-400 transition"
+                          title="Xóa bình luận"
+                        >
+                          Xóa
+                        </button>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-white/5 bg-slate-950/30 p-3 text-slate-300 leading-relaxed break-words">
+                      {cm.content}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="py-2 text-center text-[11px] text-slate-600 italic">Chưa có bình luận nào</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+

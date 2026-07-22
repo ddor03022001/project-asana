@@ -39,7 +39,6 @@ export default function WorkspaceSwitcher({ onWorkspaceChange }: WorkspaceSwitch
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setActiveWs(found);
         if (onWorkspaceChange) {
-          // eslint-disable-next-line react-hooks/set-state-in-effect
           onWorkspaceChange(found.id);
         }
       } else {
