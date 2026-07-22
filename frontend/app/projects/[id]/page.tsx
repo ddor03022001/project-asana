@@ -4,8 +4,9 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAccessToken, clearTokens, api } from '../../../lib/api';
-import WorkspaceSwitcher from '../../../components/workspace-switcher';
-import CreateProjectModal from '../../../components/create-project-modal';
+import WorkspaceSwitcher from '@/components/workspace-switcher';
+import CreateProjectModal from '@/components/create-project-modal';
+import { KanbanBoard } from '@/components/kanban/kanban-board';
 
 interface UserProfile {
   id: string;
@@ -181,6 +182,33 @@ export default function ProjectPage() {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
     createTaskMutation.mutate({ title: newTaskTitle.trim() });
+  };
+
+  const handleKanbanUpdateStatus = async (taskId: string, newStatus: string) => {
+    try {
+      await api.patch(`/tasks/${taskId}/status`, { status: newStatus });
+      refetchTasks();
+    } catch (err) {
+      console.error('Failed to update task status:', err);
+    }
+  };
+
+  const handleKanbanUpdatePosition = async (taskId: string, newPosition: number) => {
+    try {
+      await api.patch(`/tasks/${taskId}/position`, { position: newPosition });
+      refetchTasks();
+    } catch (err) {
+      console.error('Failed to update task position:', err);
+    }
+  };
+
+  const handleKanbanAddTask = async (title: string, status: string) => {
+    try {
+      await api.post(`/projects/${projectId}/tasks`, { title, status });
+      refetchTasks();
+    } catch (err) {
+      console.error('Failed to add task:', err);
+    }
   };
 
   const handleLogout = () => {
@@ -574,18 +602,32 @@ export default function ProjectPage() {
                 </table>
               </div>
             </div>
+          ) : activeTab === 'board' ? (
+            <div className="h-full overflow-hidden p-2">
+              <KanbanBoard
+                tasks={(tasks || []).map((t) => ({
+                  ...t,
+                  assignee_name: t.assignee?.name || t.assignee?.email,
+                  assignee_avatar: t.assignee?.avatar_url,
+                  position: t.position || 65536.0,
+                }))}
+                onSelectTask={(id) => setSelectedTaskId(id)}
+                onUpdateStatus={handleKanbanUpdateStatus}
+                onUpdatePosition={handleKanbanUpdatePosition}
+                onAddTask={handleKanbanAddTask}
+              />
+            </div>
           ) : (
-            // Kanban / Calendar Epic 9 & 11 placeholder info
             <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center text-center space-y-4">
-              <h2 className="text-lg font-bold text-white">Chức năng đang phát triển</h2>
+              <h2 className="text-lg font-bold text-white">Chức năng Lịch (Calendar View)</h2>
               <p className="text-xs text-slate-500">
-                Giao diện Kanban Board và Lịch (Calendar) sẽ được triển khai đầy đủ ở Epic 9 và Epic 11 của dự án.
+                Giao diện Lịch (Calendar View) sẽ được triển khai ở Epic tiếp theo của dự án.
               </p>
               <button
                 onClick={() => setActiveTab('list')}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white"
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 transition"
               >
-                Quay lại danh sách
+                Quay lại danh sách (List View)
               </button>
             </div>
           )}
