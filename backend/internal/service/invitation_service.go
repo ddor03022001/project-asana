@@ -25,6 +25,8 @@ type InvitationService interface {
 	CreateInvitation(ctx context.Context, senderID string, workspaceID string, req CreateInvitationRequest) (*domain.Invitation, error)
 	GetInvitation(ctx context.Context, token string) (*domain.Invitation, error)
 	AcceptInvitation(ctx context.Context, token string, userID string, userEmail string) error
+	GetPendingInvitations(ctx context.Context, senderID string, workspaceID string) ([]domain.Invitation, error)
+	CancelInvitation(ctx context.Context, senderID string, invitationID string) error
 }
 
 type invitationService struct {
@@ -56,8 +58,26 @@ func (s *invitationService) CreateInvitation(ctx context.Context, senderID strin
 		err := s.db.WithContext(ctx).Table("workspace_members").
 			First(&member, "workspace_id = ? AND user_id = ? AND (role = 'owner' OR role = 'admin')", workspaceID, senderID).Error
 		if err != nil {
-			return nil, errors.New("permission denied: only workspace owners and admins can invite members")
+			return nil, errors.New("Permission denied: chỉ Admin hoặc Owner mới có quyền gửi lời mời thành viên")
 		}
+	}
+
+	// 3. Check if user is ALREADY a workspace member
+	var existingMember struct {
+		UserID string
+	}
+	err := s.db.WithContext(ctx).Table("workspace_members").
+		Joins("JOIN users ON users.id = workspace_members.user_id").
+		Where("workspace_members.workspace_id = ? AND LOWER(users.email) = LOWER(?)", workspaceID, req.Email).
+		First(&existingMember).Error
+	if err == nil {
+		return nil, fmt.Errorf("Email '%s' đã là thành viên của không gian làm việc này rồi.", req.Email)
+	}
+
+	// 4. Anti-Spam Check: Check if an unexpired pending invitation ALREADY exists for this email
+	existingInv, err := s.invitationRepo.GetByEmailAndWorkspace(ctx, req.Email, workspaceID)
+	if err == nil && existingInv != nil && time.Now().Before(existingInv.ExpiresAt) {
+		return nil, fmt.Errorf("Email '%s' đã được gửi lời mời trước đó và đang chờ xác nhận. Vui lòng không gửi lặp lại để tránh spam!", req.Email)
 	}
 
 	// 3. Generate secure 32-byte hex token
@@ -169,4 +189,45 @@ func (s *invitationService) AcceptInvitation(ctx context.Context, token string, 
 
 	slog.Info("user successfully accepted workspace invitation", "user_id", userID, "workspace_id", inv.WorkspaceID)
 	return nil
+}
+
+func (s *invitationService) GetPendingInvitations(ctx context.Context, senderID string, workspaceID string) ([]domain.Invitation, error) {
+	var ws domain.Workspace
+	if err := s.db.WithContext(ctx).First(&ws, "id = ?", workspaceID).Error; err != nil {
+		return nil, errors.New("workspace not found")
+	}
+
+	if ws.OwnerID != senderID {
+		var member domain.WorkspaceMember
+		err := s.db.WithContext(ctx).Table("workspace_members").
+			First(&member, "workspace_id = ? AND user_id = ? AND (role = 'owner' OR role = 'admin')", workspaceID, senderID).Error
+		if err != nil {
+			return nil, errors.New("permission denied")
+		}
+	}
+
+	return s.invitationRepo.FindPendingByWorkspaceID(ctx, workspaceID)
+}
+
+func (s *invitationService) CancelInvitation(ctx context.Context, senderID string, invitationID string) error {
+	var inv domain.Invitation
+	if err := s.db.WithContext(ctx).First(&inv, "id = ?", invitationID).Error; err != nil {
+		return errors.New("invitation not found")
+	}
+
+	var ws domain.Workspace
+	if err := s.db.WithContext(ctx).First(&ws, "id = ?", inv.WorkspaceID).Error; err != nil {
+		return errors.New("workspace not found")
+	}
+
+	if ws.OwnerID != senderID {
+		var member domain.WorkspaceMember
+		err := s.db.WithContext(ctx).Table("workspace_members").
+			First(&member, "workspace_id = ? AND user_id = ? AND (role = 'owner' OR role = 'admin')", inv.WorkspaceID, senderID).Error
+		if err != nil {
+			return errors.New("permission denied")
+		}
+	}
+
+	return s.invitationRepo.Cancel(ctx, invitationID)
 }

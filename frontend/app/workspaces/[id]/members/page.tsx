@@ -16,6 +16,14 @@ interface WorkspaceMember {
   user_avatar: string;
 }
 
+interface PendingInvitation {
+  id: string;
+  email: string;
+  role: string;
+  created_at: string;
+  expires_at: string;
+}
+
 interface Workspace {
   id: string;
   name: string;
@@ -56,6 +64,15 @@ export default function WorkspaceMembersPage({ params }: PageProps) {
     },
   });
 
+  // 3. Fetch pending invitations
+  const { data: pendingInvitations = [], refetch: refetchPending } = useQuery<PendingInvitation[]>({
+    queryKey: ['pending-invitations', workspaceId],
+    queryFn: async () => {
+      const response = await api.get(`/workspaces/${workspaceId}/invitations`);
+      return response.data;
+    },
+  });
+
   // Mutation: Invite user
   const inviteMutation = useMutation({
     mutationFn: async (payload: { email: string; role: string }) => {
@@ -64,14 +81,29 @@ export default function WorkspaceMembersPage({ params }: PageProps) {
     },
     onSuccess: () => {
       setInviteEmail('');
-      setInviteSuccessMsg('Đã gửi lời mời thành công! Liên kết lời mời đã được ghi lại trong log.');
+      setInviteSuccessMsg('Đã gửi lời mời thành công! Thành viên sẽ nhận được liên kết kích hoạt qua Email.');
       setInviteErrorMsg('');
+      refetchPending();
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError: (err: any) => {
       const msg = err.response?.data?.error || 'Không thể gửi thư mời';
       setInviteErrorMsg(msg);
       setInviteSuccessMsg('');
+    },
+  });
+
+  // Mutation: Cancel invitation
+  const cancelInviteMutation = useMutation({
+    mutationFn: async (invitationId: string) => {
+      await api.delete(`/invitations/${invitationId}`);
+    },
+    onSuccess: () => {
+      refetchPending();
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (err: any) => {
+      alert(err.response?.data?.error || 'Không thể hủy lời mời');
     },
   });
 
@@ -244,6 +276,66 @@ export default function WorkspaceMembersPage({ params }: PageProps) {
                               </svg>
                             </button>
                           )}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {/* Pending invitations */}
+                    {pendingInvitations.map((inv) => (
+                      <tr key={inv.id} className="text-sm bg-amber-500/5 border-l-2 border-amber-500">
+                        <td className="py-4 pr-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500/20 font-bold text-amber-300">
+                              ✉️
+                            </div>
+                            <div className="overflow-hidden">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate font-semibold text-white">
+                                  {inv.email}
+                                </span>
+                                <span className="inline-flex rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/30">
+                                  Đang chờ xác nhận
+                                </span>
+                              </div>
+                              <div className="truncate text-xs text-amber-400/80">
+                                Lời mời đã được gửi qua email
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4 text-xs font-semibold text-slate-300">
+                          {inv.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}
+                        </td>
+
+                        <td className="px-4 py-4 text-xs text-slate-400">
+                          {new Date(inv.created_at).toLocaleDateString('vi-VN')}
+                        </td>
+
+                        <td className="py-4 pl-4 text-right">
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Bạn có chắc chắn muốn hủy lời mời gửi tới ${inv.email}?`)) {
+                                cancelInviteMutation.mutate(inv.id);
+                              }
+                            }}
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/10 hover:text-rose-500"
+                            title="Hủy lời mời này"
+                          >
+                            <svg
+                              className="h-4 w-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                              />
+                            </svg>
+                          </button>
                         </td>
                       </tr>
                     ))}

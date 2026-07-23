@@ -46,6 +46,24 @@ func (r *invitationRepo) GetByEmailAndWorkspace(ctx context.Context, email strin
 	return &invitation, nil
 }
 
+func (r *invitationRepo) FindPendingByWorkspaceID(ctx context.Context, workspaceID string) ([]domain.Invitation, error) {
+	var invitations []domain.Invitation
+	err := r.db.WithContext(ctx).
+		Where("workspace_id = ? AND accepted_at IS NULL AND expires_at > NOW()", workspaceID).
+		Order("created_at DESC").
+		Find(&invitations).Error
+	if err != nil {
+		return nil, err
+	}
+	return invitations, nil
+}
+
+func (r *invitationRepo) Cancel(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).
+		Where("id = ?", id).
+		Delete(&domain.Invitation{}).Error
+}
+
 func (r *invitationRepo) AddWorkspaceMember(ctx context.Context, member *domain.WorkspaceMember) error {
 	// Create a new record in workspace_members table (GORM automatically inserts to workspace_members)
 	return r.db.WithContext(ctx).Table("workspace_members").Create(member).Error

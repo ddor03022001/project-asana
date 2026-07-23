@@ -11,22 +11,39 @@ import (
 )
 
 type TaskHandler struct {
-	taskService    service.TaskService
-	projectService service.ProjectService
-	jwtSecret      string
-	db             *gorm.DB
-	hub            *service.Hub
+	taskService         service.TaskService
+	projectService      service.ProjectService
+	notificationService service.NotificationService
+	jwtSecret           string
+	db                  *gorm.DB
+	hub                 *service.Hub
 }
 
 // NewTaskHandler creates a new TaskHandler instance
-func NewTaskHandler(taskService service.TaskService, projectService service.ProjectService, jwtSecret string, db *gorm.DB, hub *service.Hub) *TaskHandler {
+func NewTaskHandler(taskService service.TaskService, projectService service.ProjectService, notificationService service.NotificationService, jwtSecret string, db *gorm.DB, hub *service.Hub) *TaskHandler {
 	return &TaskHandler{
-		taskService:    taskService,
-		projectService: projectService,
-		jwtSecret:      jwtSecret,
-		db:             db,
-		hub:            hub,
+		taskService:         taskService,
+		projectService:      projectService,
+		notificationService: notificationService,
+		jwtSecret:           jwtSecret,
+		db:                  db,
+		hub:                 hub,
 	}
+}
+
+func (h *TaskHandler) getUserName(userID string) string {
+	var user struct {
+		Name  string
+		Email string
+	}
+	err := h.db.Table("users").Select("name, email").Where("id = ?", userID).First(&user).Error
+	if err == nil {
+		if user.Name != "" {
+			return user.Name
+		}
+		return user.Email
+	}
+	return "Quản trị viên"
 }
 
 // RegisterRoutes registers the task and subtask routes in Gin
@@ -125,6 +142,12 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetString(middleware.UserIDContextKey)
+	if req.AssigneeID != nil && *req.AssigneeID != "" && *req.AssigneeID != userID {
+		assignerName := h.getUserName(userID)
+		h.notificationService.TriggerTaskAssigned(c.Request.Context(), task.ID, task.Title, *req.AssigneeID, assignerName)
+	}
+
 	if h.hub != nil {
 		h.hub.BroadcastToAll(gin.H{
 			"type":       "TASK_UPDATED",
@@ -137,8 +160,11 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 
 func (h *TaskHandler) GetTasks(c *gin.Context) {
 	projectID := c.Param("id")
+	userID := c.GetString(middleware.UserIDContextKey)
 
-	if !h.checkProjectMember(c, projectID) {
+	project, err := h.projectService.GetProjectByID(c.Request.Context(), projectID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
 	}
 
@@ -160,6 +186,12 @@ func (h *TaskHandler) GetTasks(c *gin.Context) {
 		filters["to"] = to
 	}
 
+	// Regular members can ONLY see tasks assigned to them
+	role := h.getWorkspaceRole(c, project.WorkspaceID)
+	if role != "owner" && role != "admin" {
+		filters["assignee_id"] = userID
+	}
+
 	tasks, err := h.taskService.GetTasks(c.Request.Context(), projectID, filters)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -171,16 +203,20 @@ func (h *TaskHandler) GetTasks(c *gin.Context) {
 
 func (h *TaskHandler) GetTaskByID(c *gin.Context) {
 	taskID := c.Param("id")
-
-	_, ok := h.checkTaskMember(c, taskID)
-	if !ok {
-		return
-	}
+	userID := c.GetString(middleware.UserIDContextKey)
 
 	task, err := h.taskService.GetTaskByID(c.Request.Context(), taskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
+	}
+
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	if role != "owner" && role != "admin" {
+		if task.AssigneeID == nil || *task.AssigneeID != userID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: bạn chưa được gán công việc này"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, task)
@@ -211,10 +247,20 @@ func (h *TaskHandler) UpdateTask(c *gin.Context) {
 		return
 	}
 
+	if req.AssigneeID != nil && !isOwnerOrAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied: chỉ Admin hoặc Owner mới có quyền phân công lại công việc"})
+		return
+	}
+
 	updated, err := h.taskService.UpdateTask(c.Request.Context(), taskID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if req.AssigneeID != nil && *req.AssigneeID != "" && *req.AssigneeID != userID {
+		assignerName := h.getUserName(userID)
+		h.notificationService.TriggerTaskAssigned(c.Request.Context(), updated.ID, updated.Title, *req.AssigneeID, assignerName)
 	}
 
 	if h.hub != nil {

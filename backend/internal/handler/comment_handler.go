@@ -11,23 +11,40 @@ import (
 )
 
 type CommentHandler struct {
-	commentService service.CommentService
-	taskService    service.TaskService
-	projectService service.ProjectService
-	jwtSecret      string
-	db             *gorm.DB
-	hub            *service.Hub
+	commentService      service.CommentService
+	taskService         service.TaskService
+	projectService      service.ProjectService
+	notificationService service.NotificationService
+	jwtSecret           string
+	db                  *gorm.DB
+	hub                 *service.Hub
 }
 
-func NewCommentHandler(commentService service.CommentService, taskService service.TaskService, projectService service.ProjectService, jwtSecret string, db *gorm.DB, hub *service.Hub) *CommentHandler {
+func NewCommentHandler(commentService service.CommentService, taskService service.TaskService, projectService service.ProjectService, notificationService service.NotificationService, jwtSecret string, db *gorm.DB, hub *service.Hub) *CommentHandler {
 	return &CommentHandler{
-		commentService: commentService,
-		taskService:    taskService,
-		projectService: projectService,
-		jwtSecret:      jwtSecret,
-		db:             db,
-		hub:            hub,
+		commentService:      commentService,
+		taskService:         taskService,
+		projectService:      projectService,
+		notificationService: notificationService,
+		jwtSecret:           jwtSecret,
+		db:                  db,
+		hub:                 hub,
 	}
+}
+
+func (h *CommentHandler) getUserName(userID string) string {
+	var user struct {
+		Name  string
+		Email string
+	}
+	err := h.db.Table("users").Select("name, email").Where("id = ?", userID).First(&user).Error
+	if err == nil {
+		if user.Name != "" {
+			return user.Name
+		}
+		return user.Email
+	}
+	return "Thành viên"
 }
 
 func (h *CommentHandler) RegisterRoutes(r *gin.Engine) {
@@ -68,22 +85,15 @@ func (h *CommentHandler) checkTaskMember(c *gin.Context, taskID string) (string,
 	}
 
 	userID := c.GetString(middleware.UserIDContextKey)
-	members, err := h.projectService.GetMembers(c.Request.Context(), task.ProjectID)
-	if err == nil {
-		for _, m := range members {
-			if m.UserID == userID {
-				return task.WorkspaceID, true
-			}
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	if role != "owner" && role != "admin" {
+		if task.AssigneeID == nil || *task.AssigneeID != userID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: bạn chưa được gán công việc này"})
+			return "", false
 		}
 	}
 
-	project, err := h.projectService.GetProjectByID(c.Request.Context(), task.ProjectID)
-	if err == nil && project != nil {
-		return task.WorkspaceID, true
-	}
-
-	c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: you are not a member of this project"})
-	return "", false
+	return task.WorkspaceID, true
 }
 
 func (h *CommentHandler) CreateComment(c *gin.Context) {
@@ -116,6 +126,9 @@ func (h *CommentHandler) CreateComment(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	commenterName := h.getUserName(userID)
+	h.notificationService.TriggerCommentAdded(c.Request.Context(), task.ID, task.Title, commenterName, userID, task.WorkspaceID, task.AssigneeID, h.db)
 
 	if h.hub != nil {
 		h.hub.BroadcastToAll(gin.H{

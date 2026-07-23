@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"backend/internal/domain"
+
+	"gorm.io/gorm"
 )
 
 type NotificationService interface {
@@ -13,8 +15,10 @@ type NotificationService interface {
 	MarkAsRead(ctx context.Context, id string, userID string) error
 	MarkAllAsRead(ctx context.Context, userID string) error
 	GetUnreadCount(ctx context.Context, userID string) (int64, error)
+	DeleteNotification(ctx context.Context, id string, userID string) error
+	ClearAllNotifications(ctx context.Context, userID string) error
 	TriggerTaskAssigned(ctx context.Context, taskID string, taskTitle string, assigneeID string, assignerName string)
-	TriggerCommentAdded(ctx context.Context, taskID string, taskTitle string, commenterName string, targetUserID string)
+	TriggerCommentAdded(ctx context.Context, taskID string, taskTitle string, commenterName string, commenterID string, workspaceID string, assigneeID *string, db *gorm.DB)
 }
 
 type notificationService struct {
@@ -46,6 +50,8 @@ func (s *notificationService) CreateNotification(ctx context.Context, userID str
 	if s.hub != nil {
 		s.hub.BroadcastToUser(userID, map[string]interface{}{
 			"event":        "notification",
+			"type":         "COMMENT_CREATED",
+			"task_id":      relatedTaskID,
 			"notification": notification,
 		})
 	}
@@ -69,6 +75,14 @@ func (s *notificationService) GetUnreadCount(ctx context.Context, userID string)
 	return s.notificationRepo.GetUnreadCount(ctx, userID)
 }
 
+func (s *notificationService) DeleteNotification(ctx context.Context, id string, userID string) error {
+	return s.notificationRepo.Delete(ctx, id, userID)
+}
+
+func (s *notificationService) ClearAllNotifications(ctx context.Context, userID string) error {
+	return s.notificationRepo.DeleteAllByUserID(ctx, userID)
+}
+
 func (s *notificationService) TriggerTaskAssigned(ctx context.Context, taskID string, taskTitle string, assigneeID string, assignerName string) {
 	if assigneeID == "" {
 		return
@@ -77,10 +91,28 @@ func (s *notificationService) TriggerTaskAssigned(ctx context.Context, taskID st
 	_, _ = s.CreateNotification(ctx, assigneeID, domain.NotificationTypeTaskAssigned, content, &taskID)
 }
 
-func (s *notificationService) TriggerCommentAdded(ctx context.Context, taskID string, taskTitle string, commenterName string, targetUserID string) {
-	if targetUserID == "" {
-		return
-	}
+func (s *notificationService) TriggerCommentAdded(ctx context.Context, taskID string, taskTitle string, commenterName string, commenterID string, workspaceID string, assigneeID *string, db *gorm.DB) {
 	content := fmt.Sprintf("%s đã bình luận vào công việc \"%s\".", commenterName, taskTitle)
-	_, _ = s.CreateNotification(ctx, targetUserID, domain.NotificationTypeCommentAdded, content, &taskID)
+
+	// 1. If task is assigned and commenter is NOT the assignee -> notify assignee
+	if assigneeID != nil && *assigneeID != "" && *assigneeID != commenterID {
+		_, _ = s.CreateNotification(ctx, *assigneeID, domain.NotificationTypeCommentAdded, content, &taskID)
+	}
+
+	// 2. ALSO notify Workspace Owner and Admins (except commenter)
+	var adminIDs []string
+	if db != nil {
+		db.Table("workspace_members").
+			Select("user_id").
+			Where("workspace_id = ? AND role IN ('owner', 'admin') AND user_id != ?", workspaceID, commenterID).
+			Pluck("user_id", &adminIDs)
+
+		for _, adminID := range adminIDs {
+			// Skip if already notified as assignee
+			if assigneeID != nil && adminID == *assigneeID {
+				continue
+			}
+			_, _ = s.CreateNotification(ctx, adminID, domain.NotificationTypeCommentAdded, content, &taskID)
+		}
+	}
 }

@@ -27,5 +27,7 @@ type InvitationRepository interface {
 	GetByToken(ctx context.Context, token string) (*Invitation, error)
 	Accept(ctx context.Context, token string) error
 	GetByEmailAndWorkspace(ctx context.Context, email string, workspaceID string) (*Invitation, error)
+	FindPendingByWorkspaceID(ctx context.Context, workspaceID string) ([]Invitation, error)
+	Cancel(ctx context.Context, id string) error
 	AddWorkspaceMember(ctx context.Context, member *WorkspaceMember) error
 }

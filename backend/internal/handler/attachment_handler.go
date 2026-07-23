@@ -66,22 +66,15 @@ func (h *AttachmentHandler) checkTaskMember(c *gin.Context, taskID string) bool 
 	}
 
 	userID := c.GetString(middleware.UserIDContextKey)
-	members, err := h.projectService.GetMembers(c.Request.Context(), task.ProjectID)
-	if err == nil {
-		for _, m := range members {
-			if m.UserID == userID {
-				return true
-			}
+	role := h.getWorkspaceRole(c, task.WorkspaceID)
+	if role != "owner" && role != "admin" {
+		if task.AssigneeID == nil || *task.AssigneeID != userID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: bạn chưa được gán công việc này"})
+			return false
 		}
 	}
 
-	project, err := h.projectService.GetProjectByID(c.Request.Context(), task.ProjectID)
-	if err == nil && project != nil {
-		return true
-	}
-
-	c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: you are not a member of this project"})
-	return false
+	return true
 }
 
 func (h *AttachmentHandler) UploadAttachment(c *gin.Context) {

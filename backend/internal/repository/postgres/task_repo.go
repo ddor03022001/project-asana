@@ -62,7 +62,12 @@ func (r *taskRepo) FindAllByProjectID(ctx context.Context, projectID string, fil
 }
 
 func (r *taskRepo) Update(ctx context.Context, task *domain.Task) error {
-	return r.db.WithContext(ctx).Save(task).Error
+	if task.AssigneeID == nil {
+		if err := r.db.WithContext(ctx).Table("tasks").Where("id = ?", task.ID).Update("assignee_id", nil).Error; err != nil {
+			return err
+		}
+	}
+	return r.db.WithContext(ctx).Model(task).Select("*").Omit("Assignee").Updates(task).Error
 }
 
 func (r *taskRepo) Delete(ctx context.Context, id string) error {

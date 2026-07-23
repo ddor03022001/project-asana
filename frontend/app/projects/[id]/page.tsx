@@ -167,14 +167,25 @@ export default function ProjectPage() {
     enabled: isMounted && !!projectId,
   });
 
-  // Listen for real-time WebSocket updates (comments, task status, subtasks)
+  const handleNotificationSelectTask = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    queryClient.invalidateQueries({ queryKey: ['task-details', taskId] });
+    queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
+    queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] });
+    queryClient.invalidateQueries({ queryKey: ['attachments', taskId] });
+    queryClient.invalidateQueries({ queryKey: ['task-tags', taskId] });
+  };
+
+  // Listen for real-time WebSocket updates (comments, task status, subtasks, notifications)
   useWebSocket((msg) => {
-    if (msg.type === 'COMMENT_CREATED' || msg.type === 'TASK_UPDATED') {
+    if (msg.type === 'COMMENT_CREATED' || msg.type === 'TASK_UPDATED' || msg.event === 'notification') {
       refetchTasks();
-      if (selectedTaskId) {
-        queryClient.invalidateQueries({ queryKey: ['task-details', selectedTaskId] });
-        queryClient.invalidateQueries({ queryKey: ['comments', selectedTaskId] });
-        queryClient.invalidateQueries({ queryKey: ['subtasks', selectedTaskId] });
+      const targetId = msg.task_id || selectedTaskId;
+      if (targetId) {
+        queryClient.invalidateQueries({ queryKey: ['task-details', targetId] });
+        queryClient.invalidateQueries({ queryKey: ['comments', targetId] });
+        queryClient.invalidateQueries({ queryKey: ['subtasks', targetId] });
+        queryClient.invalidateQueries({ queryKey: ['attachments', targetId] });
       }
     }
   });
@@ -429,7 +440,7 @@ export default function ProjectPage() {
       {/* Main Panel Content */}
       <main className="relative z-10 flex-1 flex flex-col overflow-hidden">
         {/* Project Header Banner */}
-        <header className="border-b border-white/5 bg-slate-900/10 px-8 py-5 backdrop-blur-md">
+        <header className="relative z-30 border-b border-white/5 bg-slate-900/10 px-8 py-5 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="h-4.5 w-4.5 rounded-full" style={{ backgroundColor: project.color }} />
@@ -438,7 +449,7 @@ export default function ProjectPage() {
 
             <div className="flex items-center gap-4">
               {/* Notification Bell Dropdown */}
-              <NotificationDropdown onSelectTask={(id) => setSelectedTaskId(id)} />
+              <NotificationDropdown onSelectTask={handleNotificationSelectTask} />
 
               {/* Tab Navigation Switcher */}
               <div className="flex rounded-xl bg-slate-950 p-1 border border-white/5">
@@ -1233,10 +1244,10 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers, curren
               value={assigneeId}
               onChange={(e) => {
                 setAssigneeId(e.target.value);
-                updateTaskMutation.mutate({ assignee_id: e.target.value ? e.target.value : undefined });
+                updateTaskMutation.mutate({ assignee_id: e.target.value });
               }}
-              disabled={!canEditTaskFields}
-              title={!canEditTaskFields ? "Chỉ Admin/Owner hoặc Người được gán task mới có quyền phân công lại" : ""}
+              disabled={!isOwnerOrAdmin}
+              title={!isOwnerOrAdmin ? "Chỉ Admin/Owner mới có quyền phân công lại công việc" : ""}
               className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-300 focus:outline-none max-w-[180px] disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <option value="">Chưa phân công</option>

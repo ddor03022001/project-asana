@@ -79,13 +79,17 @@ func main() {
 	projectService := service.NewProjectService(db, projectRepo)
 	projectHandler := handler.NewProjectHandler(projectService, cfg.JWTSecret)
 
+	notificationRepo := postgresRepo.NewNotificationRepository(db)
+	notificationService := service.NewNotificationService(notificationRepo, hub)
+	notificationHandler := handler.NewNotificationHandler(notificationService, cfg.JWTSecret)
+
 	taskRepo := postgresRepo.NewTaskRepository(db)
 	taskService := service.NewTaskService(taskRepo)
-	taskHandler := handler.NewTaskHandler(taskService, projectService, cfg.JWTSecret, db, hub)
+	taskHandler := handler.NewTaskHandler(taskService, projectService, notificationService, cfg.JWTSecret, db, hub)
 
 	commentRepo := postgresRepo.NewCommentRepository(db)
 	commentService := service.NewCommentService(commentRepo)
-	commentHandler := handler.NewCommentHandler(commentService, taskService, projectService, cfg.JWTSecret, db, hub)
+	commentHandler := handler.NewCommentHandler(commentService, taskService, projectService, notificationService, cfg.JWTSecret, db, hub)
 
 	tagRepo := postgresRepo.NewTagRepository(db)
 	tagService := service.NewTagService(tagRepo)
@@ -95,9 +99,6 @@ func main() {
 	attachmentService := service.NewAttachmentService(attachmentRepo, "./uploads")
 	attachmentHandler := handler.NewAttachmentHandler(attachmentService, taskService, projectService, cfg.JWTSecret, db)
 
-	notificationRepo := postgresRepo.NewNotificationRepository(db)
-	notificationService := service.NewNotificationService(notificationRepo, hub)
-	notificationHandler := handler.NewNotificationHandler(notificationService, cfg.JWTSecret)
 	wsHandler := handler.NewWebSocketHandler(hub, cfg.JWTSecret)
 
 	// 4. Initialize Gin engine

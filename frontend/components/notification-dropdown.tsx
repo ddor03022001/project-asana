@@ -74,6 +74,28 @@ export function NotificationDropdown({ onSelectTask }: NotificationDropdownProps
     },
   });
 
+  // Delete single notification
+  const deleteNotifMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/notifications/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications-unread-count'] });
+    },
+  });
+
+  // Clear all notifications
+  const clearAllNotifMutation = useMutation({
+    mutationFn: async () => {
+      await api.delete('/notifications/clear-all');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications-unread-count'] });
+    },
+  });
+
   const handleNotificationClick = (item: NotificationItem) => {
     if (!item.is_read) {
       markReadMutation.mutate(item.id);
@@ -126,15 +148,26 @@ export function NotificationDropdown({ onSelectTask }: NotificationDropdownProps
                 )}
               </div>
 
-              {unreadCount > 0 && (
-                <button
-                  onClick={() => markAllReadMutation.mutate()}
-                  disabled={markAllReadMutation.isPending}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition"
-                >
-                  Đánh dấu tất cả đã đọc
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={() => markAllReadMutation.mutate()}
+                    disabled={markAllReadMutation.isPending}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition"
+                  >
+                    Đọc tất cả
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button
+                    onClick={() => clearAllNotifMutation.mutate()}
+                    disabled={clearAllNotifMutation.isPending}
+                    className="text-[11px] text-rose-400 hover:text-rose-300 font-medium transition"
+                  >
+                    Xóa tất cả
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* List */}
@@ -143,29 +176,47 @@ export function NotificationDropdown({ onSelectTask }: NotificationDropdownProps
                 notifications.map((item) => (
                   <div
                     key={item.id}
-                    onClick={() => handleNotificationClick(item)}
-                    className={`group cursor-pointer rounded-2xl border p-3 transition ${
+                    className={`group relative rounded-2xl border p-3 transition ${
                       item.is_read
                         ? 'border-transparent bg-slate-950/40 text-slate-400 hover:bg-slate-800/50'
                         : 'border-indigo-500/30 bg-indigo-950/30 text-white hover:bg-indigo-900/40 shadow-sm'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs leading-relaxed font-medium">
-                        {item.content}
-                      </p>
-                      {!item.is_read && (
-                        <span className="h-2 w-2 rounded-full bg-indigo-500 shrink-0 mt-1" />
-                      )}
+                    <div
+                      onClick={() => handleNotificationClick(item)}
+                      className="cursor-pointer pr-6"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs leading-relaxed font-medium">
+                          {item.content}
+                        </p>
+                        {!item.is_read && (
+                          <span className="h-2 w-2 rounded-full bg-indigo-500 shrink-0 mt-1" />
+                        )}
+                      </div>
+                      <span className="mt-2 block text-[10px] text-slate-500">
+                        {new Date(item.created_at).toLocaleDateString('vi-VN', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          day: 'numeric',
+                          month: 'numeric',
+                        })}
+                      </span>
                     </div>
-                    <span className="mt-2 block text-[10px] text-slate-500">
-                      {new Date(item.created_at).toLocaleDateString('vi-VN', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        day: 'numeric',
-                        month: 'numeric',
-                      })}
-                    </span>
+
+                    {/* Delete single item trash button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteNotifMutation.mutate(item.id);
+                      }}
+                      title="Xóa thông báo này"
+                      className="absolute right-2.5 top-2.5 opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-400 transition"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   </div>
                 ))
               ) : (

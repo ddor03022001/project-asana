@@ -30,6 +30,8 @@ func (h *NotificationHandler) RegisterRoutes(r *gin.Engine) {
 		notifications.GET("/unread-count", h.GetUnreadCount)
 		notifications.PATCH("/:id/read", h.MarkAsRead)
 		notifications.PATCH("/read-all", h.MarkAllAsRead)
+		notifications.DELETE("/clear-all", h.ClearAllNotifications)
+		notifications.DELETE("/:id", h.DeleteNotification)
 	}
 }
 
@@ -83,4 +85,27 @@ func (h *NotificationHandler) MarkAllAsRead(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "all notifications marked as read"})
+}
+
+func (h *NotificationHandler) DeleteNotification(c *gin.Context) {
+	userID := c.GetString(middleware.UserIDContextKey)
+	id := c.Param("id")
+
+	if err := h.notificationService.DeleteNotification(c.Request.Context(), id, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "notification deleted"})
+}
+
+func (h *NotificationHandler) ClearAllNotifications(c *gin.Context) {
+	userID := c.GetString(middleware.UserIDContextKey)
+
+	if err := h.notificationService.ClearAllNotifications(c.Request.Context(), userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "all notifications cleared"})
 }

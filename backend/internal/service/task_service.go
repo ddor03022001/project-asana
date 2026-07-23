@@ -138,6 +138,7 @@ func (s *taskService) UpdateTask(ctx context.Context, id string, req UpdateTaskR
 	if req.AssigneeID != nil {
 		if *req.AssigneeID == "" {
 			task.AssigneeID = nil
+			task.Assignee = nil
 		} else {
 			task.AssigneeID = req.AssigneeID
 		}
@@ -148,7 +149,7 @@ func (s *taskService) UpdateTask(ctx context.Context, id string, req UpdateTaskR
 		return nil, fmt.Errorf("failed to save task updates: %w", err)
 	}
 
-	return task, nil
+	return s.taskRepo.FindByID(ctx, id)
 }
 
 func (s *taskService) DeleteTask(ctx context.Context, id string) error {

@@ -61,3 +61,15 @@ func (r *notificationRepo) GetUnreadCount(ctx context.Context, userID string) (i
 		Count(&count).Error
 	return count, err
 }
+
+func (r *notificationRepo) Delete(ctx context.Context, id string, userID string) error {
+	return r.db.WithContext(ctx).
+		Where("id = ? AND user_id = ?", id, userID).
+		Delete(&domain.Notification{}).Error
+}
+
+func (r *notificationRepo) DeleteAllByUserID(ctx context.Context, userID string) error {
+	return r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Delete(&domain.Notification{}).Error
+}

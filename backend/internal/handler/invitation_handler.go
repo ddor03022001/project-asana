@@ -32,7 +32,9 @@ func (h *InvitationHandler) RegisterRoutes(r *gin.Engine) {
 	protected.Use(middleware.Auth(h.jwtSecret))
 	{
 		protected.POST("/workspaces/:id/invitations", h.CreateInvitation)
+		protected.GET("/workspaces/:id/invitations", h.GetPendingInvitations)
 		protected.POST("/invitations/:token/accept", h.AcceptInvitation)
+		protected.DELETE("/invitations/:id", h.CancelInvitation)
 	}
 }
 
@@ -49,11 +51,36 @@ func (h *InvitationHandler) CreateInvitation(c *gin.Context) {
 
 	invitation, err := h.invService.CreateInvitation(c.Request.Context(), senderID, workspaceID, req)
 	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusCreated, invitation)
+}
+
+func (h *InvitationHandler) GetPendingInvitations(c *gin.Context) {
+	workspaceID := c.Param("id")
+	senderID := c.GetString(middleware.UserIDContextKey)
+
+	invitations, err := h.invService.GetPendingInvitations(c.Request.Context(), senderID, workspaceID)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, invitations)
+}
+
+func (h *InvitationHandler) CancelInvitation(c *gin.Context) {
+	invitationID := c.Param("id")
+	senderID := c.GetString(middleware.UserIDContextKey)
+
+	if err := h.invService.CancelInvitation(c.Request.Context(), senderID, invitationID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "invitation cancelled"})
 }
 
 // GetInvitation fetches invitation details by token (public endpoint)
