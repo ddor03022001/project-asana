@@ -9,6 +9,7 @@ import CreateProjectModal from '@/components/create-project-modal';
 import { KanbanBoard } from '@/components/kanban/kanban-board';
 import { CalendarView } from '@/components/calendar/calendar-view';
 import { NotificationDropdown } from '@/components/notification-dropdown';
+import { CommandPalette } from '@/components/command-palette';
 import { useWebSocket } from '@/hooks/use-websocket';
 
 interface UserProfile {
@@ -86,7 +87,22 @@ export default function ProjectPage() {
   // Selected Task for detail drawer
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
+  // Command Palette Search state
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
   const queryClient = useQueryClient();
+
+  // Listen for Ctrl+K / Cmd+K global shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Authenticate user on mount
   useEffect(() => {
@@ -447,7 +463,20 @@ export default function ProjectPage() {
               <h1 className="text-xl font-bold text-white tracking-tight">{project.name}</h1>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              {/* Command Palette Trigger Button */}
+              <button
+                onClick={() => setIsSearchOpen(true)}
+                className="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3.5 py-2 text-xs font-medium text-slate-300 backdrop-blur-md transition hover:bg-slate-800 hover:text-white"
+                title="Tìm kiếm (Ctrl + K)"
+              >
+                <svg className="h-4 w-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <span className="hidden sm:inline">Tìm kiếm...</span>
+                <kbd className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">Ctrl+K</kbd>
+              </button>
+
               {/* Notification Bell Dropdown */}
               <NotificationDropdown onSelectTask={handleNotificationSelectTask} />
 
@@ -695,6 +724,19 @@ export default function ProjectPage() {
           currentUserRole={(workspaceMembers || []).find((m) => m.user_id === profile?.id)?.role || 'member'}
         />
       )}
+
+      {/* Render Command Palette search modal */}
+      <CommandPalette
+        workspaceId={activeWorkspaceId}
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        onSelectTask={(taskId, pId) => {
+          if (pId && pId !== projectId) {
+            router.push(`/projects/${pId}`);
+          }
+          handleNotificationSelectTask(taskId);
+        }}
+      />
 
       {/* Render Project Creation modal */}
       {activeWorkspaceId && (
@@ -991,6 +1033,7 @@ function TaskDetailDrawer({ taskId, onClose, onRefresh, workspaceMembers, curren
     });
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleStatusChange = (newStatus: string) => {
     setStatus(newStatus);
     updateStatusMutation.mutate(newStatus);

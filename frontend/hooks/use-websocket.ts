@@ -61,8 +61,11 @@ export function useWebSocket(onMessage?: (data: WebSocketMessage) => void) {
           }, delay);
         };
 
-        socket.onerror = (err) => {
-          console.warn('WebSocket error:', err);
+        socket.onerror = () => {
+          // Silent warning during dev mode restarts / normal closes
+          if (socket.readyState === WebSocket.OPEN) {
+            console.warn('WebSocket connection interrupted, reconnecting...');
+          }
           socket.close();
         };
 

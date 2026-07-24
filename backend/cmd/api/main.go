@@ -99,6 +99,10 @@ func main() {
 	attachmentService := service.NewAttachmentService(attachmentRepo, "./uploads")
 	attachmentHandler := handler.NewAttachmentHandler(attachmentService, taskService, projectService, cfg.JWTSecret, db)
 
+	searchRepo := postgresRepo.NewSearchRepository(db)
+	searchService := service.NewSearchService(db, searchRepo)
+	searchHandler := handler.NewSearchHandler(searchService, cfg.JWTSecret)
+
 	wsHandler := handler.NewWebSocketHandler(hub, cfg.JWTSecret)
 
 	// 4. Initialize Gin engine
@@ -149,6 +153,9 @@ func main() {
 
 	// Register Notification routes
 	notificationHandler.RegisterRoutes(r)
+
+	// Register Search routes
+	searchHandler.RegisterRoutes(r)
 
 	// Test private endpoint protected by JWT verification middleware
 	r.GET("/protected", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) {
